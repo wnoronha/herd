@@ -1,0 +1,7 @@
+.git
+bin
+dist
+*.out
+coverage.txt
+.env
+.rtk

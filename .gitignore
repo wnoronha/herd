@@ -1,0 +1,31 @@
+# Binaries and build output
+bin/
+dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+/herd
+
+# Test and coverage artifacts
+*.test
+*.out
+coverage.txt
+coverage.out
+profile.pprof
+
+# IDE and OS files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# Temporary and local state files
+tmp/
+.herd/
+*.log
+.env
+.env.*
+.rtk/

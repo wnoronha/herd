@@ -1,0 +1,25 @@
+version: "2"
+run:
+  tests: true
+linters:
+  enable:
+    - gocyclo
+    - misspell
+  settings:
+    gocyclo:
+      min-complexity: 30
+    misspell:
+      locale: US
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
