@@ -108,7 +108,7 @@ func (d *Daemon) ExecCommand(ctx context.Context, req *ipc.ExecRequest) (*ipc.Ex
 			}
 
 			targetAddr := net.JoinHostPort(member.Addr, strconv.Itoa(int(member.Port)))
-			if member.Meta != nil && member.Meta.TailcatAddr != "" {
+			if member.Addr == "" && member.Meta != nil && member.Meta.TailcatAddr != "" {
 				targetAddr = member.Meta.TailcatAddr
 			}
 			conn, err := d.Transport.DialStream(targetAddr, tailcat.StreamTypeExec, timeout)
@@ -300,7 +300,7 @@ func (d *Daemon) dialNodeFileStream(ctx context.Context, targetNode string) (net
 	}
 
 	targetAddr := net.JoinHostPort(member.Addr, strconv.Itoa(int(member.Port)))
-	if member.Meta != nil && member.Meta.TailcatAddr != "" {
+	if member.Addr == "" && member.Meta != nil && member.Meta.TailcatAddr != "" {
 		targetAddr = member.Meta.TailcatAddr
 	}
 

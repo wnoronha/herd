@@ -568,14 +568,16 @@ func (t *Transport) DialStream(addr string, streamType byte, timeout time.Durati
 	if targetPort == 0 {
 		targetPort = 7946
 	}
-	if _, pStr, err := splitHostPortSafe(addr); err == nil && pStr != "" {
+	tcEndpoint := addr
+	if h, pStr, err := splitHostPortSafe(addr); err == nil && pStr != "" {
 		if p, err := strconv.ParseUint(pStr, 10, 16); err == nil && p > 0 {
 			targetPort = uint16(p)
+			tcEndpoint = h
 		}
 	}
 
-	if strings.HasPrefix(addr, "tcp") {
-		client := tcat.NewClient(tcat.Addr(addr))
+	if strings.HasPrefix(tcEndpoint, "tcp") {
+		client := tcat.NewClient(tcat.Addr(tcEndpoint))
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
 		var conn net.Conn
