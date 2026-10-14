@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func (e *Engine) executeDeterministicFallback(ctx context.Context, req *PromptRequest, allowedTools []string, start time.Time) (*PromptResponse, error) {
+func (e *Engine) executeDeterministicFallback(ctx context.Context, req *PromptRequest, allowedTools []string, start time.Time, ollamaHint string) (*PromptResponse, error) {
 	// Deterministic coordinator parser when no API key is provided
 	toolsToUse := e.getEffectiveTools(allowedTools)
 	lowerPrompt := strings.ToLower(req.Prompt)
@@ -39,10 +39,13 @@ func (e *Engine) executeDeterministicFallback(ctx context.Context, req *PromptRe
 		}
 	}
 
+	note := "Note: Set OPENAI_API_KEY, OPENAI_BASE_URL, or GEMINI_API_KEY for cloud LLMs, or run a local model with Ollama (ollama pull llama3.2)."
+	if strings.TrimSpace(ollamaHint) != "" {
+		note = "Ollama auto-probe: " + ollamaHint
+	}
 	defaultResp := fmt.Sprintf(
-		"Herd Node Agent ('%s') received task: %q\n\n"+
-			"Note: Set OPENAI_API_KEY, OPENAI_BASE_URL, or GEMINI_API_KEY to enable full autonomous multi-step reasoning.",
-		e.config.NodeName, req.Prompt,
+		"Herd Node Agent ('%s') received task: %q\n\n%s",
+		e.config.NodeName, req.Prompt, note,
 	)
 
 	return &PromptResponse{

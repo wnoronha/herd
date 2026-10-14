@@ -42,17 +42,20 @@ func (e *Engine) tryAutoOllamaBackends(
 	effCfg Config,
 	allowedTools []string,
 	start time.Time,
-) (*PromptResponse, error) {
+) (*PromptResponse, error, string) {
 	if effCfg.Provider == "gemini" {
-		return nil, nil
+		return nil, nil, ""
 	}
+
+	discovered, _, _ := applyDiscoveredOllamaModels(ctx, effCfg)
+	effCfg = discovered
 
 	var lastErr error
 	if !openAIPathExplicit(effCfg) {
 		tryCfg := ollamaAutoOpenAICfg(effCfg)
 		resp, err := e.executeWithOpenAI(ctx, req, tryCfg, allowedTools, start)
 		if err == nil && resp != nil {
-			return resp, nil
+			return resp, nil, ""
 		}
 		if err != nil {
 			lastErr = err
@@ -61,14 +64,18 @@ func (e *Engine) tryAutoOllamaBackends(
 
 	resp, err := e.executeWithOllama(ctx, req, effCfg, start)
 	if err == nil && resp != nil {
-		return resp, nil
+		return resp, nil, ""
 	}
 	if err != nil {
 		lastErr = err
 	}
 
 	if effCfg.Provider == "ollama" && lastErr != nil {
-		return nil, lastErr
+		return nil, lastErr, ""
 	}
-	return nil, nil
+	hint := ""
+	if lastErr != nil || resp == nil {
+		hint = ollamaAutoFailureHint(ctx, effCfg, lastErr)
+	}
+	return nil, nil, hint
 }
