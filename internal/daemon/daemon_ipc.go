@@ -487,4 +487,3 @@ func (d *Daemon) MailRead(ctx context.Context, req *ipc.MailReadRequest) (*ipc.M
 		Acked:    ack,
 	}, nil
 }
-

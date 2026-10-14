@@ -4,6 +4,7 @@ Comprehensive guide to testing, verifying, and validating Herd across unit tests
 
 See also:
 - [Architecture Overview](architecture.md)
+- [Security Deep Dive](security-deep-dive.md)
 - [Actor-Style Mailbox Subsystem](mailbox.md)
 - [Unified Logging Architecture](logging.md)
 - [CLI Commands Reference](commands.md)
@@ -16,11 +17,15 @@ See also:
 Herd includes automated test suites covering all packages with race detection enabled.
 
 ### 1.1 Complete Quality Gate (`make check`)
-Before committing or publishing releases, run the canonical three-stage quality check:
+Before you commit or publish a release, run the quality gate:
 ```bash
 # Runs go vet, golangci-lint, and go test -v -race ./...
 make check
 ```
+
+Ensure `golangci-lint` is on your `PATH` (for example `$(go env GOPATH)/bin`).
+
+The GitHub **CI** workflow also runs **govulncheck** on every push and pull request. The **Module hygiene** workflow runs weekly and fails if `go mod tidy` would change `go.mod` or `go.sum`.
 
 You can also run individual package test suites:
 ```bash
@@ -37,6 +42,7 @@ go test -v -race ./docs/...
 
 ### 1.2 Integration Test Suites (`test/cluster_integration_test.go`)
 Runs full multi-node cluster lifecycle tests:
+- **Quickstart Join (`TestMultiNodeClusterQuickstartJoin`)**: Starts three nodes with default per-node identities (no manual PSK alignment). This matches the README quickstart.
 - **Node Join & Convergence**: Validates that 4 independent daemons discover each other and form a consistent roster.
 - **KV Replication**: Asserts that keys written on one node replicate to all nodes within gossip convergence thresholds.
 - **Mailbox & Actor Reactive Loops**: Tests that messages dispatched to `mailbox:<target>/<id>` wake up the recipient agent, execute tasks, and post replies.

@@ -885,8 +885,3 @@ func TestRoleBasedScopedToolsets_OpenAI(t *testing.T) {
 		t.Errorf("unexpected response: %s", resp.Response)
 	}
 }
-
-
-
-
-

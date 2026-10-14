@@ -336,4 +336,3 @@ func TestAgentInitCLI(t *testing.T) {
 		t.Fatalf("RunAgent init with force failed: %v", err)
 	}
 }
-

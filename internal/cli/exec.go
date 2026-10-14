@@ -8,7 +8,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/wnoronha/herd/internal/config"
 	"github.com/wnoronha/herd/internal/ipc"
 )
 
@@ -25,8 +24,7 @@ func (e ExitCodeError) Error() string {
 // RunExec executes the 'herd exec' command.
 func RunExec(args []string) error {
 	fs := flag.NewFlagSet("exec", flag.ExitOnError)
-	socketNodeName := fs.String("node-name", "", "Local node daemon to communicate with")
-	socketPath := fs.String("socket", "", "Daemon Unix domain socket path")
+	socketFlags := RegisterSocketFlags(fs)
 	jsonOutput := fs.Bool("json", false, "Output results as JSON")
 	timeoutSec := fs.Int("timeout", 30, "Command execution timeout in seconds")
 
@@ -43,15 +41,10 @@ func RunExec(args []string) error {
 	command := remaining[1]
 	cmdArgs := remaining[2:]
 
-	cfg, err := config.Load(config.Options{
-		NodeName:   *socketNodeName,
-		SocketPath: *socketPath,
-	})
+	client, _, err := ConnectDaemon(socketFlags)
 	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
+		return err
 	}
-
-	client := ipc.NewClient(cfg.SocketPath)
 	client.SetTimeout(time.Duration(*timeoutSec+5) * time.Second)
 
 	ctx := context.Background()

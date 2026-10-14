@@ -11,16 +11,13 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/wnoronha/herd/internal/config"
-	"github.com/wnoronha/herd/internal/ipc"
 	"github.com/wnoronha/herd/internal/subsys"
 )
 
 // RunForward executes the 'herd forward' command.
 func RunForward(args []string) error {
 	fs := flag.NewFlagSet("forward", flag.ExitOnError)
-	nodeName := fs.String("node-name", "", "Local node daemon to query for peer discovery")
-	socketPath := fs.String("socket", "", "Daemon Unix domain socket path")
+	socketFlags := RegisterSocketFlags(fs)
 	bindHost := fs.String("bind", "127.0.0.1", "Local IP interface to bind listener to")
 
 	if err := fs.Parse(args); err != nil {
@@ -49,15 +46,10 @@ func RunForward(args []string) error {
 		return fmt.Errorf("invalid target port: %s", parts[1])
 	}
 
-	cfg, err := config.Load(config.Options{
-		NodeName:   *nodeName,
-		SocketPath: *socketPath,
-	})
+	client, _, err := ConnectDaemon(socketFlags)
 	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
+		return err
 	}
-
-	client := ipc.NewClient(cfg.SocketPath)
 	roster, err := client.GetRoster(context.Background())
 	targetAddr := ""
 	if err == nil {

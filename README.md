@@ -1,6 +1,6 @@
 # Herd
 
-[![Go Report Card](https://goreportcard.com/badge/github.com/rtk-ai/herd)](https://goreportcard.com/report/github.com/rtk-ai/herd)
+[![Go Report Card](https://goreportcard.com/badge/github.com/wnoronha/herd)](https://goreportcard.com/report/github.com/wnoronha/herd)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Herd is a lightweight, zero-configuration peer-to-peer mesh clustering daemon and multi-tool CLI built in Go. It enables nodes to form decentralized, secure P2P clusters over WireGuard-powered transports with SWIM gossip membership, local Unix IPC control, distributed key-value storage, and remote execution.
@@ -12,6 +12,7 @@ Herd is a lightweight, zero-configuration peer-to-peer mesh clustering daemon an
 Complete documentation is organized into modular guides:
 
 - **[System Architecture](docs/architecture.md)** — Daemon controller, Tailcat WireGuard data plane, and SWIM gossip layer.
+- **[Security Deep Dive](docs/security-deep-dive.md)** — IPC/mesh threat surfaces, transport failure modes, and agent tool risks.
 - **[CLI & Daemon Commands](docs/commands.md)** — Full command reference (`status`, `roster`, `join`, `leave`, `exec`, `forward`, `cp`, `kv`, `mail`, `agent`, `docs`), arguments, and `HERD_*` environment variables.
 - **[Actor-Style Mailbox](docs/mailbox.md)** — Asynchronous actor messaging, reactive agent loop, thread tracking, and symmetric reply routing.
 - **[Unified Logging Architecture](docs/logging.md)** — Zap-backed abstract logger, subsystem namespacing, third-party adapters, and anti-pattern rules.
@@ -32,6 +33,9 @@ make build
 
 # Install to ~/.local/bin/herd
 make install
+
+# Or install from source (Go 1.21+)
+go install github.com/wnoronha/herd/cmd/herd@latest
 ```
 
 ### 2. Start Node 1 (Bootstrap Node)

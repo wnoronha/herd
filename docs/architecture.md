@@ -11,6 +11,7 @@ See also:
 - [Google ADK-Go Integration](adk-integration.md)
 - [Testing & Verification](testing-process.md)
 - [Cross-Platform & Deployment](cross-platform.md)
+- [Security Deep Dive](security-deep-dive.md)
 
 ---
 
@@ -54,11 +55,14 @@ graph TD
 ## 2. Core Components
 
 ### 2.1 Daemon Controller (`internal/daemon`)
-The central coordinator managing:
+The central coordinator manages:
 - Node lifecycle (`Start`, `Stop`, graceful cluster departures).
-- Local Unix domain socket JSON-RPC IPC server.
+- Local Unix domain socket JSON-RPC IPC server (request context ties to daemon `runCtx` for cancellation).
 - Keypair generation and loading from XDG storage.
 - Transport initialization, Roster delegate wiring, and distributed KV state synchronizers.
+- **`StreamRouter`**: Registers exec, agent, and file stream handlers on the Tailcat transport.
+- **`ForwarderRegistry`**: Tracks local port-forward tunnels started through IPC.
+- **`AgentRuntime`**: Starts the agent engine and mailbox inbox watcher goroutine.
 
 ### 2.2 Tailcat Transport Layer (`internal/transport/tailcat`)
 Implements `memberlist.Transport` using Tailscale's control-plane-free `github.com/tailscale/tailcat` library:

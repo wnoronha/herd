@@ -9,7 +9,6 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/wnoronha/herd/internal/config"
 	"github.com/wnoronha/herd/internal/ipc"
 )
 
@@ -57,14 +56,15 @@ Flags:
 }
 
 func getIPCClient(socketNodeName, socketPath string) (*ipc.Client, error) {
-	cfg, err := config.Load(config.Options{
-		NodeName:   socketNodeName,
-		SocketPath: socketPath,
+	client, _, err := ConnectDaemon(SocketFlags{
+		NodeName:   strPtr(socketNodeName),
+		SocketPath: strPtr(socketPath),
 	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to load config: %w", err)
-	}
-	return ipc.NewClient(cfg.SocketPath), nil
+	return client, err
+}
+
+func strPtr(s string) *string {
+	return &s
 }
 
 func runKVGet(args []string) error {

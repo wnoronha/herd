@@ -15,7 +15,7 @@ func TestEmbeddedDocs(t *testing.T) {
 		t.Fatalf("expected embedded documentation topics, found none")
 	}
 
-	expectedTopics := []string{"architecture", "commands", "cross-platform", "protocol"}
+	expectedTopics := []string{"architecture", "commands", "cross-platform", "protocol", "security-deep-dive"}
 	found := make(map[string]bool)
 	for _, d := range docList {
 		found[d.Slug] = true

@@ -298,4 +298,3 @@ func TestDaemonAgentAutoSeeding(t *testing.T) {
 		t.Errorf("expected researcher persona to be loaded in daemon AgentEngine")
 	}
 }
-

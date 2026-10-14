@@ -11,7 +11,7 @@ See also:
 
 ## 1. Identity & Cryptography
 
-Every Herd node generates a 32-byte Curve25519 keypair persisted securely (`0600`) in `$XDG_DATA_HOME/herd/identity.json`:
+Every Herd node generates a 32-byte Curve25519 keypair persisted securely (`0600`) at `$XDG_DATA_HOME/herd/<node_name>/identity.json` (override with `HERD_DATA_DIR`; see [architecture.md](architecture.md)):
 - **Private Key**: `x25519.PrivateKey` (32 bytes random entropy).
 - **Public Key**: `x25519.PublicKey` (32 bytes).
 - **Pre-Shared Discovery Key**: 32-byte cluster shared secret used for initial unseeded gossip encryption before mutual peer keys are established.

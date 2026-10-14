@@ -8,6 +8,8 @@ linters:
     - gosec
     - misspell
     - staticcheck
+    - errorlint
+    - unused
   settings:
     gocyclo:
       min-complexity: 30

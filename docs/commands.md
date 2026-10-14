@@ -4,6 +4,7 @@ Complete reference for Herd commands, options, arguments, and environment variab
 
 See also:
 - [Architecture Overview](architecture.md)
+- [Security Deep Dive](security-deep-dive.md)
 - [Actor-Style Mailbox](mailbox.md)
 - [Unified Logging Architecture](logging.md)
 - [Protocol Specification](protocol.md)
@@ -14,7 +15,7 @@ See also:
 
 ## 1. Global Flags & Environment Overrides
 
-Every command respects both CLI flags and environment variables:
+Most CLI commands use the same daemon connection flags through `internal/cli/common.go`. Each command respects CLI flags and environment variables:
 
 | Setting | Flag | Environment Variable | Default |
 |---|---|---|---|

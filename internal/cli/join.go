@@ -5,16 +5,12 @@ import (
 	"flag"
 	"fmt"
 	"time"
-
-	"github.com/wnoronha/herd/internal/config"
-	"github.com/wnoronha/herd/internal/ipc"
 )
 
 // RunJoin executes the 'herd join <address>' command.
 func RunJoin(args []string) error {
 	fs := flag.NewFlagSet("join", flag.ExitOnError)
-	nodeName := fs.String("node-name", "", "Node name to target socket for")
-	socketPath := fs.String("socket", "", "Daemon Unix domain socket path")
+	socketFlags := RegisterSocketFlags(fs)
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -26,15 +22,10 @@ func RunJoin(args []string) error {
 	}
 	targetAddr := remaining[0]
 
-	cfg, err := config.Load(config.Options{
-		NodeName:   *nodeName,
-		SocketPath: *socketPath,
-	})
+	client, _, err := ConnectDaemon(socketFlags)
 	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
+		return err
 	}
-
-	client := ipc.NewClient(cfg.SocketPath)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 

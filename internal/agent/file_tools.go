@@ -202,11 +202,11 @@ func buildFileWriteTool() ToolDefinition {
 
 // ArtifactMeta holds metadata for a stored artifact.
 type ArtifactMeta struct {
-	Name        string            `json:"name"`
-	Size        int64             `json:"size"`
-	CreatedAt   time.Time         `json:"created_at"`
-	UpdatedAt   time.Time         `json:"updated_at"`
-	Metadata    map[string]string `json:"metadata,omitempty"`
+	Name      string            `json:"name"`
+	Size      int64             `json:"size"`
+	CreatedAt time.Time         `json:"created_at"`
+	UpdatedAt time.Time         `json:"updated_at"`
+	Metadata  map[string]string `json:"metadata,omitempty"`
 }
 
 // resolveArtifactsDir finds the local directory for artifacts storage.

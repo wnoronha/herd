@@ -93,7 +93,7 @@ type ToolDefinition struct {
 
 // OpenAITool represents an OpenAI standard tool definition.
 type OpenAITool struct {
-	Type     string           `json:"type"`
+	Type     string            `json:"type"`
 	Function OpenAIFunctionDef `json:"function"`
 }
 
@@ -106,11 +106,11 @@ type OpenAIFunctionDef struct {
 
 // OpenAIChatMessage represents a message in an OpenAI chat completion request.
 type OpenAIChatMessage struct {
-	Role       string            `json:"role"`
-	Content    any               `json:"content,omitempty"`
-	Name       string            `json:"name,omitempty"`
-	ToolCalls  []OpenAIToolCall  `json:"tool_calls,omitempty"`
-	ToolCallID string            `json:"tool_call_id,omitempty"`
+	Role       string           `json:"role"`
+	Content    any              `json:"content,omitempty"`
+	Name       string           `json:"name,omitempty"`
+	ToolCalls  []OpenAIToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string           `json:"tool_call_id,omitempty"`
 }
 
 // OpenAIToolCall represents a tool call emitted by an OpenAI model.

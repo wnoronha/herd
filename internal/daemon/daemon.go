@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -18,30 +17,28 @@ import (
 	"github.com/wnoronha/herd/internal/kv"
 	"github.com/wnoronha/herd/internal/logger"
 	"github.com/wnoronha/herd/internal/roster"
-	"github.com/wnoronha/herd/internal/subsys"
 	"github.com/wnoronha/herd/internal/transport/tailcat"
 )
 
 // Daemon coordinates the node identity, Tailcat transport, Memberlist gossip, and IPC server.
 type Daemon struct {
-	Config        *config.Config
-	Identity      *identity.Identity
-	Transport     *tailcat.Transport
-	Store         *roster.Store
-	Delegate      *roster.Delegate
-	KVStore       *kv.Store
-	KVDelegate    *kv.GossipDelegate
-	Memberlist    *memberlist.Memberlist
-	IPCServer     *ipc.Server
-	AgentEngine   *agent.Engine
-	StartTime     time.Time
-	Logger        logger.Logger
-	runCtx        context.Context
-	runCancel     context.CancelFunc
-	agentWg       sync.WaitGroup
-	processedMsgs sync.Map
-	forwarders    map[string]*subsys.PortForwarder
-	forwardersMu  sync.Mutex
+	Config            *config.Config
+	Identity          *identity.Identity
+	Transport         *tailcat.Transport
+	Store             *roster.Store
+	Delegate          *roster.Delegate
+	KVStore           *kv.Store
+	KVDelegate        *kv.GossipDelegate
+	Memberlist        *memberlist.Memberlist
+	IPCServer         *ipc.Server
+	AgentEngine       *agent.Engine
+	StartTime         time.Time
+	Logger            logger.Logger
+	runCtx            context.Context
+	runCancel         context.CancelFunc
+	processedMsgs     sync.Map
+	forwarderRegistry *ForwarderRegistry
+	agentRuntime      *AgentRuntime
 
 	mu         sync.RWMutex
 	state      string
@@ -72,14 +69,15 @@ func New(cfg *config.Config, log logger.Logger) (*Daemon, error) {
 	}
 
 	d := &Daemon{
-		Config:     cfg,
-		Identity:   id,
-		StartTime:  time.Now(),
-		Logger:     log,
-		state:      "initializing",
-		shutdownCh: make(chan struct{}),
-		forwarders: make(map[string]*subsys.PortForwarder),
+		Config:            cfg,
+		Identity:          id,
+		StartTime:         time.Now(),
+		Logger:            log,
+		state:             "initializing",
+		shutdownCh:        make(chan struct{}),
+		forwarderRegistry: newForwarderRegistry(),
 	}
+	d.agentRuntime = newAgentRuntime(d)
 
 	return d, nil
 }
@@ -117,9 +115,7 @@ func (d *Daemon) Start(ctx context.Context) error {
 	d.Store = roster.NewStore(meta)
 	d.Delegate = roster.NewDelegate(d.Store, meta)
 	d.Delegate.SetKeyRegistrar(tr)
-	tr.RegisterStreamHandler(tailcat.StreamTypeExec, d.handleExecStream)
-	tr.RegisterStreamHandler(tailcat.StreamTypeAgent, d.handleAgentStream)
-	tr.RegisterStreamHandler(tailcat.StreamTypeFile, d.handleFileStream)
+	newStreamRouter(d).Register(tr)
 	d.KVStore = kv.NewStore(d.Config.NodeName)
 	d.KVDelegate = kv.NewGossipDelegate(d.KVStore, func() int {
 		if d.Memberlist != nil {
@@ -160,14 +156,7 @@ func (d *Daemon) Start(ctx context.Context) error {
 	d.Memberlist = ml
 
 	// 4. Initialize AI Agent Engine & Background Reactive Watcher
-	agentsDir := filepath.Join(d.Config.ConfigDir, "agents")
-	if seededFile, created, err := agent.EnsureDefaultAgentsFile(agentsDir); err == nil && created {
-		d.Logger.Named("agent").Infof("Seeded default AGENTS.md at %s", seededFile)
-	}
-
-	d.AgentEngine = agent.NewEngine(agent.Config{NodeName: d.Config.NodeName}, d, agentsDir)
-	d.agentWg.Add(1)
-	go d.runAgentInboxWatcher(d.runCtx)
+	d.agentRuntime.Start(d.runCtx)
 
 	// 5. Start IPC Server
 	d.IPCServer = ipc.NewServer(d.Config.SocketPath, d)
@@ -211,11 +200,13 @@ func (d *Daemon) Stop() error {
 
 	var errs []error
 
-	// 1. Stop Agent Inbox Watcher and cancel in-flight IPC/stream work
+	// 1. Stop agent runtime and cancel in-flight IPC/stream work
 	if d.runCancel != nil {
 		d.runCancel()
 	}
-	d.agentWg.Wait()
+	if d.agentRuntime != nil {
+		d.agentRuntime.Stop()
+	}
 
 	// 2. Stop IPC Server
 	if d.IPCServer != nil {
@@ -236,12 +227,9 @@ func (d *Daemon) Stop() error {
 	}
 
 	// 4. Stop Port Forwarders
-	d.forwardersMu.Lock()
-	for _, pf := range d.forwarders {
-		_ = pf.Stop()
+	if d.forwarderRegistry != nil {
+		d.forwarderRegistry.StopAll()
 	}
-	d.forwarders = make(map[string]*subsys.PortForwarder)
-	d.forwardersMu.Unlock()
 
 	// 5. Shutdown Tailcat Transport
 	if d.Transport != nil {

@@ -35,7 +35,9 @@ func (d *Daemon) handleExecStream(conn net.Conn) {
 	}
 	res := subsys.ExecuteLocal(execCtx, d.Config.NodeName, req.Command, req.Args, timeout)
 	enc := json.NewEncoder(conn)
-	_ = enc.Encode(res)
+	if err := enc.Encode(res); err != nil {
+		d.Logger.Named("exec_stream").Warnf("failed to encode exec response: %v", err)
+	}
 }
 
 // handleAgentStream handles an incoming StreamTypeAgent stream for direct agent prompt invocation.
@@ -63,10 +65,14 @@ func (d *Daemon) handleAgentStream(conn net.Conn) {
 
 	enc := json.NewEncoder(conn)
 	if err != nil {
-		_ = enc.Encode(map[string]any{"error": err.Error()})
+		if encErr := enc.Encode(map[string]any{"error": err.Error()}); encErr != nil {
+			d.Logger.Named("agent_stream").Warnf("failed to encode agent error: %v", encErr)
+		}
 		return
 	}
-	_ = enc.Encode(resp)
+	if encErr := enc.Encode(resp); encErr != nil {
+		d.Logger.Named("agent_stream").Warnf("failed to encode agent response: %v", encErr)
+	}
 }
 
 // handleFileStream delegates an incoming StreamTypeFile stream to the file transfer subsystem.
@@ -210,12 +216,9 @@ func (d *Daemon) ForwardPort(ctx context.Context, req *ipc.ForwardRequest) (*ipc
 		return nil, fmt.Errorf("failed to start port forwarder on %s: %w", listenAddr, err)
 	}
 
-	d.forwardersMu.Lock()
-	if old, exists := d.forwarders[listenAddr]; exists {
+	if old := d.forwarderRegistry.Set(listenAddr, pf); old != nil {
 		_ = old.Stop()
 	}
-	d.forwarders[listenAddr] = pf
-	d.forwardersMu.Unlock()
 
 	return &ipc.ForwardResponse{
 		Message:    fmt.Sprintf("Tunnel established: %s -> %s (%s)", listenAddr, req.TargetNode, targetAddr),

@@ -16,7 +16,6 @@ import (
 // runMailboxWatcher runs the background reactive event loop watching for incoming messages
 // in the node's Mailbox and broadcast address.
 func (d *Daemon) runMailboxWatcher(ctx context.Context) {
-	defer d.agentWg.Done()
 	if d.KVStore == nil || d.AgentEngine == nil {
 		return
 	}
@@ -170,4 +169,3 @@ func (d *Daemon) processMailboxEntry(ctx context.Context, entry *kv.Entry) {
 		d.Logger.Named("mailbox").Infof("Dispatched reply for message %s to %s", msg.ID, replyKey)
 	}
 }
-

@@ -74,12 +74,12 @@ func buildClusterRosterTool(cctx ClusterContext) ToolDefinition {
 
 			members := store.GetMembers()
 			type NodeInfo struct {
-				Name      string `json:"name"`
-				Status    string `json:"status"`
-				Address   string `json:"address"`
-				Port      uint16 `json:"port"`
-				RTTMs     int64  `json:"rtt_ms,omitempty"`
-				IsSelf    bool   `json:"is_self"`
+				Name    string `json:"name"`
+				Status  string `json:"status"`
+				Address string `json:"address"`
+				Port    uint16 `json:"port"`
+				RTTMs   int64  `json:"rtt_ms,omitempty"`
+				IsSelf  bool   `json:"is_self"`
 			}
 
 			var res []NodeInfo
@@ -525,5 +525,3 @@ func buildAgentReadMailboxTool(cctx ClusterContext) ToolDefinition {
 		},
 	}
 }
-
-

@@ -8,38 +8,29 @@ import (
 	"os"
 	"strings"
 	"text/tabwriter"
-	"time"
-
-	"github.com/wnoronha/herd/internal/config"
-	"github.com/wnoronha/herd/internal/ipc"
 )
 
 // RunRoster executes the 'herd roster' command.
 func RunRoster(args []string) error {
 	fs := flag.NewFlagSet("roster", flag.ExitOnError)
-	nodeName := fs.String("node-name", "", "Node name to target socket for")
-	socketPath := fs.String("socket", "", "Daemon Unix domain socket path")
+	socketFlags := RegisterSocketFlags(fs)
 	jsonOutput := fs.Bool("json", false, "Output roster as JSON")
 
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	cfg, err := config.Load(config.Options{
-		NodeName:   *nodeName,
-		SocketPath: *socketPath,
-	})
+	client, cfg, err := ConnectDaemon(socketFlags)
 	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
+		return err
 	}
 
-	client := ipc.NewClient(cfg.SocketPath)
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultIPCTimeout)
 	defer cancel()
 
 	roster, err := client.GetRoster(ctx)
 	if err != nil {
-		return fmt.Errorf("herd daemon is not running or unreachable at '%s'.\nStart the daemon with 'herd daemon': %w", cfg.SocketPath, err)
+		return DaemonUnreachableError(cfg, err)
 	}
 
 	if *jsonOutput {

@@ -15,13 +15,13 @@ import (
 
 // ActiveForward represents a running port forwarder tunnel.
 type ActiveForward struct {
-	ID          string               `json:"id"`
-	LocalAddr   string               `json:"local_addr"`
-	TargetNode  string               `json:"target_node"`
-	TargetAddr  string               `json:"target_addr"`
-	StartedAt   time.Time            `json:"started_at"`
-	forwarder   *subsys.PortForwarder `json:"-"`
-	cancel      context.CancelFunc   `json:"-"`
+	ID         string                `json:"id"`
+	LocalAddr  string                `json:"local_addr"`
+	TargetNode string                `json:"target_node"`
+	TargetAddr string                `json:"target_addr"`
+	StartedAt  time.Time             `json:"started_at"`
+	forwarder  *subsys.PortForwarder `json:"-"`
+	cancel     context.CancelFunc    `json:"-"`
 }
 
 // forwardRegistry tracks active port forwarders across the node's agent lifecycle.
