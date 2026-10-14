@@ -29,10 +29,7 @@ func (d *Daemon) handleExecStream(conn net.Conn) {
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	execCtx := d.runCtx
-	if execCtx == nil {
-		execCtx = context.Background()
-	}
+	execCtx := d.getRunCtx()
 	res := subsys.ExecuteLocal(execCtx, d.Config.NodeName, req.Command, req.Args, timeout)
 	enc := json.NewEncoder(conn)
 	if err := enc.Encode(res); err != nil {
@@ -48,10 +45,7 @@ func (d *Daemon) handleAgentStream(conn net.Conn) {
 	if err := dec.Decode(&req); err != nil {
 		return
 	}
-	parent := d.runCtx
-	if parent == nil {
-		parent = context.Background()
-	}
+	parent := d.getRunCtx()
 	ctx, cancel := context.WithTimeout(parent, 3*time.Minute)
 	defer cancel()
 
