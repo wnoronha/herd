@@ -3,6 +3,7 @@
 Specification and design for embedding Google's Gemini Go SDK (`google.golang.org/genai`) directly into Herd to form a decentralized autonomous agent mesh. The implementation uses the Gemini Go SDK, not an ADK package.
 
 See also:
+- [Agent Quickstart](agent-quickstart.md) — local Ollama, `herd agent status`, troubleshooting
 - [Architecture Overview](architecture.md)
 - [Actor-Style Mailbox Subsystem](mailbox.md)
 - [Unified Logging Architecture](logging.md)
@@ -37,7 +38,7 @@ graph TD
         FILE_TOOLS["Local File Tools (file_read / file_write)"]
         ARTIFACT_TOOL["ArtifactStoreTool (artifact_store)"]
         RUN_AGENT_TOOL["RunAgentTool (run_agent)"]
-        WEB_TOOLS["Web Tools (fetch_url / google_search)"]
+        WEB_TOOLS["Web & DNS Tools (fetch_url / google_search / dns_lookup)"]
     end
 
     subgraph LLMProviders["Model Providers"]
@@ -381,6 +382,22 @@ The agent engine picks backends in order: **Gemini** (when configured), **OpenAI
 | **Deterministic Fallback** | *(None required)* | Offline rule-based router | Air-gapped mesh when no LLM is reachable |
 
 Vertex AI is not currently supported. Use the Gemini API directly via GEMINI_API_KEY.
+
+### 5.1 Troubleshooting (local Ollama & status)
+
+Use **`herd agent status --probe`** before debugging prompts. Common cases:
+
+| Observation | What it means | Action |
+|-------------|---------------|--------|
+| `backend_class: "auto"` | Zero cloud keys; runtime probes Ollama per prompt | Ensure `ollama serve` and `ollama pull <model>` |
+| Probe error: no models installed | `GET /api/tags` returned an empty list | `ollama pull llama3.2` or set `OLLAMA_MODEL` |
+| Prompt shows `herd-builtin-coordinator` | Auto-probe failed silently before LLM | Read `Ollama auto-probe:` line in response; restart daemon after upgrading Herd |
+| `unknown method: AgentStatus` | CLI newer than running daemon | Rebuild and restart `herd daemon` |
+| Explicit `provider=ollama` | Ollama is mandatory | Fix Ollama or change KV; no silent fallback |
+
+**Daemon vs CLI:** Agent commands use IPC to the long-running daemon. Rebuild alone is not enough — restart the daemon. See [Agent Quickstart](agent-quickstart.md).
+
+**Model selection:** Auto-Ollama prefers `OLLAMA_MODEL`, then replaces cloud defaults (`gpt-4o-mini`, `gemini-*`) with `llama3.2`, then any installed tag from Ollama’s model list.
 
 ---
 

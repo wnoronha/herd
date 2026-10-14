@@ -43,6 +43,9 @@ func (e *Engine) tryAutoOllamaBackends(
 	allowedTools []string,
 	start time.Time,
 ) (*PromptResponse, error, string) {
+	if os.Getenv("HERD_DISABLE_AUTO_OLLAMA") != "" {
+		return nil, nil, ""
+	}
 	if effCfg.Provider == "gemini" {
 		return nil, nil, ""
 	}

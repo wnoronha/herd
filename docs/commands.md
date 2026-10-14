@@ -3,6 +3,7 @@
 Complete reference for Herd commands, options, arguments, and environment variables.
 
 See also:
+- [Agent Quickstart](agent-quickstart.md) — local Ollama, status/probe, troubleshooting
 - [Architecture Overview](architecture.md)
 - [Security Deep Dive](security-deep-dive.md)
 - [Actor-Style Mailbox](mailbox.md)
@@ -233,6 +234,8 @@ herd mail watch --json --ack
 
 ## 7. AI Agent Operations
 
+For a short **local Ollama** walkthrough (pull model → restart daemon → status → prompt), see **[Agent Quickstart](agent-quickstart.md)**.
+
 ### `herd agent init [flags]`
 Scaffolds a starter `AGENTS.md` file containing standard declarative personas (`coordinator`, `ops`, and `researcher`). Also runs automatically when `herd daemon` starts if no agent definitions exist in the node's configuration directory.
 
@@ -274,7 +277,33 @@ herd agent status --cluster
 | `--cluster` | Query all **alive** roster nodes via `herd exec <node> herd agent status --json` |
 | `--json` | Machine-readable output (cluster mode returns `{local, nodes, errors}`) |
 
-When the backend is **fallback**, the command prints **Fix** hints (KV global config or env keys). API keys are never printed in full.
+**`backend_class` values** (field `backend_class` in `--json`):
+
+| Value | Description |
+|-------|-------------|
+| `llm` | Cloud or explicit OpenAI-compatible backend configured |
+| `auto` | No cloud keys; each prompt auto-probes local Ollama before fallback |
+| `ollama` | Explicit `provider=ollama` (hard error if Ollama unavailable) |
+| `fallback` | Deterministic `herd-builtin-coordinator` only |
+
+When the backend is **`auto`**, **`fallback`**, or misconfigured **`llm`**, the command prints **Reason** and **Fix** hints. API keys are never printed in full.
+
+**Example (`herd agent status --json`**, zero cloud keys, Ollama running with models):
+
+```json
+{
+  "node_name": "node-1",
+  "backend_class": "auto",
+  "backend_provider": "ollama",
+  "model": "llama3.2 (auto-probe http://localhost:11434)",
+  "configured_llm": false,
+  "registered_tools_count": 18,
+  "reason": "No cloud LLM keys configured; each prompt auto-probes local Ollama ...",
+  "fix_hints": ["Start Ollama locally or set OPENAI_BASE_URL ..."]
+}
+```
+
+With `--probe` on an **`auto`** backend, Herd calls Ollama `GET /api/tags`. Probe fails if the server is reachable but **no models** are installed.
 
 ### `herd agent prompt "<task>" [flags]`
 Sends a task prompt to the local embedded AI agent (or a remote node agent). Supports activating declarative roles from Markdown definitions (`AGENTS.md` and `*.agent.md`).

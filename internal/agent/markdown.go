@@ -293,6 +293,7 @@ agents:
       - agent_read_mailbox
       - fetch_url
       - google_search
+      - dns_lookup
   - name: ops
     role: ops
     description: Cluster infrastructure and remote system operations specialist
@@ -300,12 +301,14 @@ agents:
       - cluster_roster
       - cluster_exec
       - cluster_cp
+      - dns_lookup
   - name: researcher
     role: researcher
     description: Web research and cluster intelligence specialist
     tools:
       - google_search
       - fetch_url
+      - dns_lookup
       - shared_kv
 ---
 # Herd Node Agent Personas

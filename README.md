@@ -16,6 +16,7 @@ Complete documentation is organized into modular guides:
 - **[CLI & Daemon Commands](docs/commands.md)** — Full command reference (`status`, `roster`, `join`, `leave`, `exec`, `forward`, `cp`, `kv`, `mail`, `agent`, `docs`), arguments, and `HERD_*` environment variables.
 - **[Actor-Style Mailbox](docs/mailbox.md)** — Asynchronous actor messaging, reactive agent loop, thread tracking, and symmetric reply routing.
 - **[Unified Logging Architecture](docs/logging.md)** — Zap-backed abstract logger, subsystem namespacing, third-party adapters, and anti-pattern rules.
+- **[Agent Quickstart](docs/agent-quickstart.md)** — Local Ollama in minutes, `herd agent status --probe`, daemon/IPC notes, and troubleshooting.
 - **[Google ADK-Go Integration](docs/adk-integration.md)** — Embedded AI agent runtime, cluster tools (`ClusterRoster`, `ClusterExec`, `SharedKV`, `AgentMail`), and natural language cluster orchestration.
 - **[Wire Protocol & Transport](docs/protocol.md)** — Curve25519 ECDH handshake, ChaCha20-Poly1305 framing, stream multiplexing, and Tailcat DERP NAT traversal.
 - **[Distributed Key-Value Store](docs/distributed-kv.md)** — Last-Write-Wins (LWW) conflict resolution, naming conventions & schemas, gossip replication, and anti-entropy push/pull sync.
@@ -71,6 +72,11 @@ herd exec node-2 "hostname && uptime"
 
 # View embedded offline documentation guides
 herd docs mailbox
+
+# Local AI agent (Ollama auto-probe when no API keys — see docs/agent-quickstart.md)
+ollama pull llama3.2
+herd agent status --probe
+herd agent prompt "List alive nodes in the cluster"
 ```
 
 ---

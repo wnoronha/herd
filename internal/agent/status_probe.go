@@ -92,6 +92,10 @@ func probeOllama(ctx context.Context, cfg Config) *ProbeStatus {
 		ps.Error = err.Error()
 		return ps
 	}
+	if len(payload.Models) == 0 {
+		ps.Error = "Ollama is running but no models are installed (run: ollama pull llama3.2)"
+		return ps
+	}
 	ps.OK = true
 	return ps
 }

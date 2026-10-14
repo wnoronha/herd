@@ -55,13 +55,13 @@ func (e *Engine) BuildStatus(ctx context.Context, opts StatusCollectOptions) (*A
 
 	if opts.Probe && configured && backendClass == "llm" {
 		report.Probe = probeLLM(ctx, backendProvider, effCfg)
-	} else if opts.Probe && backendClass == "ollama" {
+	} else if opts.Probe && (backendClass == "ollama" || backendClass == "auto") {
 		report.Probe = probeOllama(ctx, effCfg)
 	} else if opts.Probe {
 		report.Probe = &ProbeStatus{
 			Attempted: true,
 			OK:        false,
-			Error:     "probe skipped: no LLM backend configured (fallback mode)",
+			Error:     "probe skipped: deterministic fallback only (no LLM or auto-Ollama path)",
 		}
 	}
 
@@ -174,8 +174,9 @@ func buildStatusReasonFixes(cfg Config, configured bool, backendClass string, kv
 	if backendClass == "auto" {
 		return "No cloud LLM keys configured; each prompt auto-probes local Ollama (" + defaultOllamaOpenAIBase + " with tools, then native chat) before deterministic fallback.",
 			[]string{
-				"Start Ollama locally or set OPENAI_BASE_URL / provider in KV to override",
-				`herd kv set agent:config:global '{"provider":"gemini","model":"gemini-3.8-flash","api_key":"<key>"}' for cloud LLM`,
+				"Run: ollama serve && ollama pull llama3.2 (or set OLLAMA_MODEL); restart herd daemon after upgrading Herd",
+				"herd agent status --probe — verify Ollama tags before prompting",
+				"Override: OPENAI_BASE_URL / GEMINI_API_KEY or kv:agent:config:global",
 			}
 	}
 

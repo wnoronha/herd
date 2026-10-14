@@ -3,6 +3,7 @@
 Comprehensive guide to testing, verifying, and validating Herd across unit tests, local clusters, and multi-network hardware setups.
 
 See also:
+- [Agent Quickstart](agent-quickstart.md)
 - [Architecture Overview](architecture.md)
 - [Security Deep Dive](security-deep-dive.md)
 - [Actor-Style Mailbox Subsystem](mailbox.md)
@@ -35,6 +36,7 @@ go test -v -race ./internal/kv/...
 go test -v -race ./internal/roster/...
 go test -v -race ./internal/daemon/...
 go test -v -race ./internal/agent/...
+go test -v -race ./test/...   # integration (agent tool loops, dns_lookup E2E when not -short)
 go test -v -race ./internal/mailbox/...
 go test -v -race ./internal/logger/...
 go test -v -race ./docs/...
@@ -48,6 +50,19 @@ Runs full multi-node cluster lifecycle tests:
 - **Mailbox & Actor Reactive Loops**: Tests that messages dispatched to `mailbox:<target>/<id>` wake up the recipient agent, execute tasks, and post replies.
 - **Node Departure & Suspect Handling**: Verifies graceful leaves and failover detection when nodes stop responding.
 - **Logging Hygiene**: Ensures `logger.NewNop()` suppresses noise during tests while structured loggers accurately capture subsystem and node metadata.
+
+### 1.3 Agent runtime & tools (`internal/agent/`)
+
+Agent-specific coverage includes:
+
+- **Auto-Ollama** (`ollama_auto_test.go`, `ollama_discover_test.go`): OpenAI-compatible mock and model tag selection.
+- **`herd agent status`**: `status_test.go` (backend class `auto` / `llm` / `fallback`), probe against Ollama `/api/tags`.
+- **`dns_lookup`**: `dns_tools_test.go`; optional live checks in `test/agent_primitives_integration_test.go` (skip with `-short`).
+- **Tool loops**: `agent_test.go` (`TestDNSLookupOpenAIToolLoop`, cluster tool mocks).
+
+After changing agent providers, tools, or IPC (`AgentStatus`), update [agent-quickstart.md](agent-quickstart.md), [commands.md](commands.md) §7, and [adk-integration.md](adk-integration.md) §5 in the same change.
+
+Unit tests that assert deterministic fallback behavior set `HERD_DISABLE_AUTO_OLLAMA=1` so a local `ollama serve` does not change results.
 
 ---
 

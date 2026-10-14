@@ -3,7 +3,7 @@ package agent
 // AgentStatusReport is the structured agent backend / persona status for one node.
 type AgentStatusReport struct {
 	NodeName             string          `json:"node_name"`
-	BackendClass         string          `json:"backend_class"`   // llm | ollama | fallback
+	BackendClass         string          `json:"backend_class"`   // llm | auto | ollama | fallback
 	BackendProvider      string          `json:"backend_provider"` // gemini | openai | ollama | fallback
 	Model                string          `json:"model"`
 	FallbackModel        string          `json:"fallback_model,omitempty"`

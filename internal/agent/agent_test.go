@@ -827,6 +827,7 @@ func TestEngineAgentRegistration(t *testing.T) {
 }
 
 func TestRoleBasedScopedToolsets_FallbackAndNotFound(t *testing.T) {
+	t.Setenv("HERD_DISABLE_AUTO_OLLAMA", "1")
 	meta := &roster.NodeMeta{NodeName: "test-node", TailcatAddr: "tcpTest..."}
 	rStore := roster.NewStore(meta)
 	mockCtx := &mockClusterContext{nodeName: "test-node", roster: rStore}

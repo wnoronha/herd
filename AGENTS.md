@@ -24,6 +24,19 @@ This project uses ICM for persistent memory across sessions.
 - Store resolved errors: `icm store -t errors-resolved -c "description" -i high -k "keywords"`
 - Store context summaries: `icm store -t context-herd -c "summary" -i high`
 
+## Documentation
+
+User-facing docs live under `docs/` and are **embedded** in the binary (`go:embed *.md`). Keep them aligned with shipped behavior in the **same change** as code.
+
+When you change agent providers, tools, CLI commands, or IPC:
+
+- [docs/agent-quickstart.md](docs/agent-quickstart.md) — onboarding and troubleshooting
+- [docs/commands.md](docs/commands.md) — CLI reference
+- [docs/adk-integration.md](docs/adk-integration.md) — runtime, tools, providers
+- [README.md](README.md) — index and quickstart snippets
+
+Verify with `go test ./docs/...` and `herd docs agent-quickstart` after `make build`.
+
 <!-- rtk-instructions v2 -->
 ## RTK (Rust Token Killer) - Token-Optimized Commands
 
