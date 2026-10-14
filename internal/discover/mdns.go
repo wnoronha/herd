@@ -179,7 +179,9 @@ func parseTXT(text []string) map[string]string {
 	return out
 }
 
-// usableIP rejects unspecified and multicast addresses.
+// usableIP rejects unspecified, multicast, and link-local addresses.
+// Link-local (169.254/10, fe80::/10) is segment-ambiguous without a zone
+// and never the right answer for mesh dialing.
 func usableIP(ip net.IP) bool {
-	return !ip.IsUnspecified() && !ip.IsMulticast()
+	return !ip.IsUnspecified() && !ip.IsMulticast() && !ip.IsLinkLocalUnicast() && !ip.IsLinkLocalMulticast()
 }
