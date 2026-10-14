@@ -227,6 +227,13 @@ func TestAgentCLI(t *testing.T) {
 	if err := ExecuteArgs([]string{"agent", "tools"}); err != nil {
 		t.Errorf("agent tools error: %v", err)
 	}
+
+	if err := ExecuteArgs(append([]string{"agent", "status"}, sock...)); err != nil {
+		t.Errorf("agent status error: %v", err)
+	}
+	if err := ExecuteArgs(append([]string{"agent", "status", "--json", "--role", "ops"}, sock...)); err != nil {
+		t.Errorf("agent status role json error: %v", err)
+	}
 	if err := ExecuteArgs(append([]string{"agent", "prompt", "show cluster roster"}, sock...)); err != nil {
 		t.Errorf("agent prompt error: %v", err)
 	}

@@ -86,6 +86,19 @@ func (m *mockDaemonHandler) AgentPrompt(ctx context.Context, req *AgentPromptReq
 	}, nil
 }
 
+func (m *mockDaemonHandler) AgentStatus(ctx context.Context, req *AgentStatusRequest) (*AgentStatusResponse, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return &AgentStatusResponse{
+		NodeName:      "mock-node",
+		BackendClass:  "llm",
+		BackendProvider: "gemini",
+		Model:         "gemini-3.8-flash",
+		ConfiguredLLM: true,
+	}, nil
+}
+
 func (m *mockDaemonHandler) CopyFile(ctx context.Context, req *CPRequest) (*CPResponse, error) {
 	if m.err != nil {
 		return nil, m.err

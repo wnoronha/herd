@@ -188,6 +188,57 @@ type ToolCallDTO struct {
 	Result    string `json:"result"`
 }
 
+// AgentStatusRequest selects optional role scope and live probe behavior.
+type AgentStatusRequest struct {
+	Role  string `json:"role,omitempty"`
+	Probe bool   `json:"probe,omitempty"`
+}
+
+// AgentStatusResponse reports LLM backend, config sources, and personas for one node.
+type AgentStatusResponse struct {
+	NodeName             string              `json:"node_name"`
+	BackendClass         string              `json:"backend_class"`
+	BackendProvider      string              `json:"backend_provider"`
+	Model                string              `json:"model"`
+	FallbackModel        string              `json:"fallback_model,omitempty"`
+	ConfiguredLLM        bool                `json:"configured_llm"`
+	ConfigSources        []string            `json:"config_sources,omitempty"`
+	KVGlobalPresent      bool                `json:"kv_global_present"`
+	KVGlobalSummary      string              `json:"kv_global_summary,omitempty"`
+	RegisteredToolsCount int                 `json:"registered_tools_count"`
+	Personas             []AgentPersonaStatus  `json:"personas,omitempty"`
+	Role                 *AgentRoleStatus    `json:"role,omitempty"`
+	Probe                *AgentProbeStatus   `json:"probe,omitempty"`
+	Reason               string              `json:"reason,omitempty"`
+	FixHints             []string            `json:"fix_hints,omitempty"`
+}
+
+// AgentPersonaStatus summarizes a declarative persona tool allowlist.
+type AgentPersonaStatus struct {
+	Name      string   `json:"name"`
+	Role      string   `json:"role"`
+	ToolCount int      `json:"tool_count"`
+	Tools     []string `json:"tools,omitempty"`
+}
+
+// AgentRoleStatus details one role and optional missing tools from the registry.
+type AgentRoleStatus struct {
+	Role             string   `json:"role"`
+	AllowedTools     []string `json:"allowed_tools,omitempty"`
+	MissingFromRole  []string `json:"missing_from_role,omitempty"`
+	UsesFullToolset  bool     `json:"uses_full_toolset"`
+	EffectiveBackend string   `json:"effective_backend"`
+	EffectiveModel   string   `json:"effective_model"`
+}
+
+// AgentProbeStatus holds optional live provider reachability checks.
+type AgentProbeStatus struct {
+	Attempted bool   `json:"attempted"`
+	OK        bool   `json:"ok"`
+	Provider  string `json:"provider,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
 // AgentPromptResponse contains the agent's completed response and execution trace.
 type AgentPromptResponse struct {
 	Response    string        `json:"response"`
@@ -254,6 +305,7 @@ type DaemonHandler interface {
 	KVDelete(ctx context.Context, req *KVDeleteRequest) (*KVDeleteResponse, error)
 	KVList(ctx context.Context, req *KVListRequest) (*KVListResponse, error)
 	AgentPrompt(ctx context.Context, req *AgentPromptRequest) (*AgentPromptResponse, error)
+	AgentStatus(ctx context.Context, req *AgentStatusRequest) (*AgentStatusResponse, error)
 	MailSend(ctx context.Context, req *MailSendRequest) (*MailSendResponse, error)
 	MailList(ctx context.Context, req *MailListRequest) (*MailListResponse, error)
 	MailRead(ctx context.Context, req *MailReadRequest) (*MailReadResponse, error)

@@ -186,6 +186,17 @@ func (s *Server) dispatchAgent(ctx context.Context, req Request) (Response, bool
 		}
 		pResp, err := s.handler.AgentPrompt(ctx, &pReq)
 		return toResponse(pResp, err), true
+
+	case "AgentStatus", "agent_status", "agent.status":
+		var sReq AgentStatusRequest
+		if len(req.Params) > 0 {
+			if err := json.Unmarshal(req.Params, &sReq); err != nil {
+				return Response{Success: false, Error: "invalid agent_status params: " + err.Error()}, true
+			}
+		}
+		sResp, err := s.handler.AgentStatus(ctx, &sReq)
+		return toResponse(sResp, err), true
+
 	default:
 		return Response{}, false
 	}

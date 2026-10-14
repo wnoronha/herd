@@ -256,6 +256,26 @@ Flags:
 - `--global`: Scaffold into global user configuration (`~/.config/herd/agents`)
 - `--for-node <name>`: Scaffold into that node's config directory (`~/.config/herd/<node>/agents`)
 
+### `herd agent status [flags]`
+Shows whether this node's agent will use an **LLM** (Gemini / OpenAI-compatible / Ollama) or the **deterministic fallback** (`herd-builtin-coordinator`), where config came from (env vs KV), loaded personas, and optional role tool gaps.
+
+```bash
+herd agent status
+herd agent status --json
+herd agent status --role researcher
+herd agent status --probe
+herd agent status --cluster
+```
+
+| Flag | Description |
+|------|-------------|
+| `--role` | Tool allowlist and missing common tools (e.g. `dns_lookup`) for one persona |
+| `--probe` | Live API check against the configured provider (uses quota/network) |
+| `--cluster` | Query all **alive** roster nodes via `herd exec <node> herd agent status --json` |
+| `--json` | Machine-readable output (cluster mode returns `{local, nodes, errors}`) |
+
+When the backend is **fallback**, the command prints **Fix** hints (KV global config or env keys). API keys are never printed in full.
+
 ### `herd agent prompt "<task>" [flags]`
 Sends a task prompt to the local embedded AI agent (or a remote node agent). Supports activating declarative roles from Markdown definitions (`AGENTS.md` and `*.agent.md`).
 

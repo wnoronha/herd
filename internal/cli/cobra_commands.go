@@ -198,8 +198,27 @@ func newAgentCmd() *cobra.Command {
 		Use:   "agent",
 		Short: "AI agent operations (prompt, chat, tools)",
 	}
-	agent.AddCommand(newAgentInitCmd(), newAgentPromptCmd(), newAgentChatCmd(), newAgentToolsCmd())
+	agent.AddCommand(newAgentInitCmd(), newAgentStatusCmd(), newAgentPromptCmd(), newAgentChatCmd(), newAgentToolsCmd())
 	return agent
+}
+
+func newAgentStatusCmd() *cobra.Command {
+	var role string
+	var probe bool
+	var cluster bool
+	var jsonOutput bool
+	cmd := &cobra.Command{
+		Use:   "status",
+		Short: "Show agent LLM backend, config sources, and persona tool scope",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return agentStatusAction(role, probe, cluster, jsonOutput)
+		},
+	}
+	cmd.Flags().StringVar(&role, "role", "", "Show tool allowlist and gaps for a persona role")
+	cmd.Flags().BoolVar(&probe, "probe", false, "Live-check LLM/Ollama API reachability")
+	cmd.Flags().BoolVar(&cluster, "cluster", false, "Collect status from all alive roster nodes via exec")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output JSON")
+	return cmd
 }
 
 func newAgentInitCmd() *cobra.Command {
