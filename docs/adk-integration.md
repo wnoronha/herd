@@ -261,15 +261,16 @@ temperature: 0.2
 tools:
   - google_search
   - fetch_url
+  - dns_lookup
   - shared_kv
 ---
 # Researcher Persona Instructions
 
 You are an expert research agent embedded in the Herd cluster mesh.
 Your primary objective is to search documentation, fetch remote endpoint status,
-and persist structured intelligence into the cluster's distributed KV store.
+resolve DNS when debugging connectivity, and persist structured intelligence into the cluster's distributed KV store.
 
-Always verify facts using `google_search` before storing conclusions in `shared_kv`.
+Use `dns_lookup` for A/AAAA/MX/TXT checks; verify external facts with `google_search` before storing conclusions in `shared_kv`.
 ```
 
 #### Frontmatter Attributes:
@@ -292,25 +293,39 @@ An `AGENTS.md` file can define multiple agents simultaneously using an `agents:`
 ```markdown
 ---
 agents:
-  - name: ops
-    role: ops
-    description: Cluster infrastructure operator
-    model: gpt-4o-mini
+  - name: coordinator
+    role: coordinator
+    description: Primary cluster coordinator
     tools:
       - cluster_roster
       - cluster_exec
       - cluster_cp
+      - shared_kv
+      - agent_send_mail
+      - agent_broadcast
+      - agent_read_mailbox
+      - fetch_url
+      - google_search
+      - dns_lookup
+  - name: ops
+    role: ops
+    description: Cluster infrastructure operator
+    tools:
+      - cluster_roster
+      - cluster_exec
+      - cluster_cp
+      - dns_lookup
   - name: researcher
     role: researcher
     description: Web research specialist
-    model: gemini-3.8-flash
     tools:
       - google_search
       - fetch_url
+      - dns_lookup
       - shared_kv
 ---
 # Base Cluster Operating Guidelines
-You are a node agent within the Herd decentralized cluster. Respect node security policies.
+You are a node agent within the Herd decentralized cluster. Respect node security policies and `agent:policy:allowed_exec`.
 ```
 
 ### 4.3 Standard Discovery Locations & Auto-Seeding
@@ -331,6 +346,9 @@ herd agent init
 
 # Scaffold into global user configuration
 herd agent init --global
+
+# Refresh node personas after upgrading Herd (adds new default tools such as dns_lookup)
+herd agent init --force --for-node "$(herd status --json 2>/dev/null | jq -r .node_name // env.HERD_NODE_NAME)"
 ```
 
 ### 4.4 Role-Based Tool Scoping & Security Enforcement

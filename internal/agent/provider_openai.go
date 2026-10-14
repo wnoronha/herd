@@ -19,7 +19,7 @@ func (e *Engine) executeWithOpenAI(ctx context.Context, req *PromptRequest, cfg 
 	if systemPrompt == "" {
 		systemPrompt = fmt.Sprintf(
 			"You are Herd Agent for node '%s'. You are part of a decentralized P2P mesh cluster. "+
-				"Use your cluster and research tools (cluster_roster, cluster_exec, cluster_cp, shared_kv, agent_send_mail, agent_broadcast, agent_read_mailbox, fetch_url, google_search) "+
+				"Use your cluster and research tools (cluster_roster, cluster_exec, cluster_cp, shared_kv, agent_send_mail, agent_broadcast, agent_read_mailbox, fetch_url, google_search, dns_lookup) "+
 				"to discover nodes, execute actions, transfer files, search the web, fetch web content, and coordinate tasks across machines.",
 			cfg.NodeName,
 		)

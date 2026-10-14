@@ -315,9 +315,11 @@ agents:
 
 You are an autonomous AI agent operating within the Herd decentralized P2P cluster mesh.
 Each persona is tuned for specific tasks:
-- **coordinator**: Orchestrates cluster discovery, actor mailboxes, and inter-agent coordination.
-- **ops**: Executes systems administration and file synchronization across cluster nodes.
-- **researcher**: Gathers web documentation and external intelligence, saving findings to KV.
+- **coordinator**: Orchestrates cluster discovery, actor mailboxes, and inter-agent coordination across the full toolset.
+- **ops**: Executes systems administration and file synchronization; use **dns_lookup** for connectivity and service record checks before remote exec.
+- **researcher**: Gathers web documentation and external intelligence (**google_search**, **fetch_url**, **dns_lookup**), saving findings to **shared_kv**.
+
+When no cloud API keys are configured, the runtime auto-probes local **Ollama** at http://localhost:11434 before deterministic fallback. Ensure models are pulled (ollama pull llama3.2) and restart **herd daemon** after upgrading Herd.
 `
 
 // EnsureDefaultAgentsFile scaffolds starter agent definitions into targetDir if no agent files exist.

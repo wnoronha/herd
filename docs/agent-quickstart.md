@@ -71,7 +71,18 @@ Success: `Model:` in the footer is your Ollama model (not `herd-builtin-coordina
 
 Failure: response may include `Ollama auto-probe: ...` — follow that text (usually `ollama pull` or restart daemon).
 
-### 5. DNS example (coordinator / ops / researcher personas)
+### 5. Refresh default personas
+
+If your node was seeded before a Herd upgrade, overwrite stale `AGENTS.md`:
+
+```bash
+herd agent init --force --for-node "$HERD_NODE_NAME"
+# restart herd daemon to reload markdown personas
+```
+
+Reference: [examples/agents/AGENTS.md](../examples/agents/AGENTS.md) (mirrors `herd agent init` output).
+
+### 6. DNS example (coordinator / ops / researcher personas)
 
 Default `AGENTS.md` includes `dns_lookup` for troubleshooting:
 

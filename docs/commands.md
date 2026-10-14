@@ -251,6 +251,9 @@ herd agent init --global
 
 # Force overwrite existing AGENTS.md
 herd agent init --force
+
+# Refresh personas on a running node (e.g. after upgrade adds dns_lookup to defaults)
+herd agent init --force --for-node my-node
 ```
 
 Flags:
