@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"text/tabwriter"
 	"time"
 
@@ -88,6 +89,14 @@ func agentStatusCluster(role string, probe, jsonOutput bool) error {
 		remoteArgs = append(remoteArgs, "--probe")
 	}
 
+	// Per-node budget (rounded up): the remote herd needs the full status
+	// timeout plus margin, and the fan-out runs in parallel so one slow
+	// peer can't starve the rest.
+	perNode := agentStatusTimeout(probe)
+	remoteTimeoutSec := ceilSeconds(perNode + 10*time.Second)
+
+	type target struct{ name string }
+	var targets []target
 	for _, member := range roster.Members {
 		if member.Name == cfg.NodeName {
 			continue
@@ -96,36 +105,31 @@ func agentStatusCluster(role string, probe, jsonOutput bool) error {
 			out.Errors[member.Name] = "member status: " + member.Status
 			continue
 		}
+		targets = append(targets, target{name: member.Name})
+	}
 
-		execResp, err := client.ExecCommand(ctx, &ipc.ExecRequest{
-			Target:         member.Name,
-			Command:        "herd",
-			Args:           remoteArgs,
-			TimeoutSeconds: int(agentStatusTimeout(probe).Seconds()),
-		})
-		if err != nil {
-			out.Errors[member.Name] = err.Error()
-			continue
+	if len(targets) > 0 {
+		fanCtx, fanCancel := context.WithTimeout(context.Background(),
+			time.Duration(len(targets))*perNode+30*time.Second)
+		defer fanCancel()
+
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+		for _, t := range targets {
+			wg.Add(1)
+			go func(name string) {
+				defer wg.Done()
+				nodeReport, errMsg := fetchRemoteAgentStatus(fanCtx, client, name, remoteArgs, remoteTimeoutSec)
+				mu.Lock()
+				defer mu.Unlock()
+				if errMsg != "" {
+					out.Errors[name] = errMsg
+					return
+				}
+				out.Nodes[name] = nodeReport
+			}(t.name)
 		}
-		if len(execResp.Results) == 0 {
-			out.Errors[member.Name] = "no exec results"
-			continue
-		}
-		res := execResp.Results[0]
-		if res.ExitCode != 0 {
-			msg := strings.TrimSpace(res.Stderr)
-			if msg == "" {
-				msg = strings.TrimSpace(res.Stdout)
-			}
-			out.Errors[member.Name] = msg
-			continue
-		}
-		var nodeReport ipc.AgentStatusResponse
-		if err := json.Unmarshal([]byte(strings.TrimSpace(res.Stdout)), &nodeReport); err != nil {
-			out.Errors[member.Name] = "invalid agent status JSON: " + err.Error()
-			continue
-		}
-		out.Nodes[member.Name] = &nodeReport
+		wg.Wait()
 	}
 
 	if jsonOutput {
@@ -147,6 +151,56 @@ func agentStatusCluster(role string, probe, jsonOutput bool) error {
 	}
 	_ = w.Flush()
 	return nil
+}
+
+// remoteHerdBinary is the remote agent-status binary, overridable via HERD_BIN
+// for renamed/aliased installs.
+func remoteHerdBinary() string {
+	if b := strings.TrimSpace(os.Getenv("HERD_BIN")); b != "" {
+		return b
+	}
+	return "herd"
+}
+
+// ceilSeconds rounds a duration up to whole seconds (minimum 1).
+func ceilSeconds(d time.Duration) int {
+	if d <= 0 {
+		return 1
+	}
+	return int((d + time.Second - 1) / time.Second)
+}
+
+func fetchRemoteAgentStatus(ctx context.Context, client *ipc.Client, node string, remoteArgs []string, timeoutSec int) (*ipc.AgentStatusResponse, string) {
+	execResp, err := client.ExecCommand(ctx, &ipc.ExecRequest{
+		Target:         node,
+		Command:        remoteHerdBinary(),
+		Args:           remoteArgs,
+		TimeoutSeconds: timeoutSec,
+	})
+	if err != nil {
+		return nil, err.Error()
+	}
+	if len(execResp.Results) == 0 {
+		return nil, "no exec results"
+	}
+	res := execResp.Results[0]
+	if res.ExitCode != 0 {
+		msg := strings.TrimSpace(res.Stderr)
+		if msg == "" {
+			msg = strings.TrimSpace(res.Stdout)
+		}
+		return nil, msg
+	}
+	// Tolerate log prefixes on stdout: decode from the first '{'.
+	stdout := res.Stdout
+	if i := strings.IndexByte(stdout, '{'); i >= 0 {
+		stdout = stdout[i:]
+	}
+	var nodeReport ipc.AgentStatusResponse
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &nodeReport); err != nil {
+		return nil, "invalid agent status JSON: " + err.Error()
+	}
+	return &nodeReport, ""
 }
 
 func printAgentStatus(report *ipc.AgentStatusResponse) {
@@ -197,6 +251,9 @@ func printAgentStatus(report *ipc.AgentStatusResponse) {
 		fmt.Println()
 		if report.Probe.OK {
 			fmt.Printf("Probe:       OK (%s reachable)\n", report.Probe.Provider)
+			if len(report.Probe.Models) > 0 {
+				fmt.Printf("Models:      %s\n", strings.Join(report.Probe.Models, ", "))
+			}
 		} else {
 			fmt.Printf("Probe:       FAILED (%s): %s\n", report.Probe.Provider, report.Probe.Error)
 		}

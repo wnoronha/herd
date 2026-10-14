@@ -46,7 +46,7 @@ func (e *Engine) BuildStatus(ctx context.Context, opts StatusCollectOptions) (*A
 	report.Reason, report.FixHints = buildStatusReasonFixes(effCfg, configured, backendClass, kvPresent)
 
 	if opts.Role != "" {
-		roleStatus, err := e.buildRoleStatus(opts.Role, effCfg, backendProvider, model, configured)
+		roleStatus, err := e.buildRoleStatus(opts.Role, backendClass, backendProvider, model, configured)
 		if err != nil {
 			return nil, err
 		}
@@ -157,11 +157,10 @@ func classifyBackend(cfg Config) (class, provider, model string, configured bool
 		return "llm", "openai", modelName, true
 	}
 
-	if cfg.Provider != "gemini" {
-		return "auto", "ollama", firstNonEmpty(cfg.OpenAIModel, "llama3.2") + " (auto-probe " + strings.TrimSuffix(defaultOllamaOpenAIBase, "/v1") + ")", false
-	}
-
-	return "fallback", "fallback", fallbackModelName, false
+	// No cloud keys and no explicit endpoint: every prompt auto-probes
+	// local Ollama before deterministic fallback. Model stays
+	// machine-readable; the probe endpoint lives in Reason/FixHints.
+	return "auto", "ollama", firstNonEmpty(cfg.OpenAIModel, "llama3.2"), false
 }
 
 func buildStatusReasonFixes(cfg Config, configured bool, backendClass string, kvGlobal bool) (reason string, fixes []string) {
@@ -215,7 +214,7 @@ func (e *Engine) listPersonaStatus() []PersonaStatus {
 	return out
 }
 
-func (e *Engine) buildRoleStatus(role string, effCfg Config, provider, model string, configured bool) (*RoleStatus, error) {
+func (e *Engine) buildRoleStatus(role, backendClass, provider, model string, configured bool) (*RoleStatus, error) {
 	def, ok := e.GetAgent(role)
 	if !ok {
 		return nil, fmt.Errorf("agent role or name %q not found", role)
@@ -231,8 +230,14 @@ func (e *Engine) buildRoleStatus(role string, effCfg Config, provider, model str
 		EffectiveModel:   model,
 	}
 	if !configured {
-		rs.EffectiveBackend = "fallback"
-		rs.EffectiveModel = fallbackModelName
+		if backendClass == "auto" {
+			// Prompts still try local Ollama before fallback.
+			rs.EffectiveBackend = "ollama"
+			rs.EffectiveModel = model
+		} else {
+			rs.EffectiveBackend = "fallback"
+			rs.EffectiveModel = fallbackModelName
+		}
 	}
 
 	if len(allowed) > 0 {
@@ -253,7 +258,6 @@ func (e *Engine) buildRoleStatus(role string, effCfg Config, provider, model str
 	if def.Model != "" {
 		rs.EffectiveModel = def.Model
 	}
-	_ = effCfg
 	return rs, nil
 }
 

@@ -298,7 +298,7 @@ When the backend is **`auto`**, **`fallback`**, or misconfigured **`llm`**, the 
   "node_name": "node-1",
   "backend_class": "auto",
   "backend_provider": "ollama",
-  "model": "llama3.2 (auto-probe http://localhost:11434)",
+  "model": "llama3.2",
   "configured_llm": false,
   "registered_tools_count": 18,
   "reason": "No cloud LLM keys configured; each prompt auto-probes local Ollama ...",

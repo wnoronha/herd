@@ -233,10 +233,11 @@ type AgentRoleStatus struct {
 
 // AgentProbeStatus holds optional live provider reachability checks.
 type AgentProbeStatus struct {
-	Attempted bool   `json:"attempted"`
-	OK        bool   `json:"ok"`
-	Provider  string `json:"provider,omitempty"`
-	Error     string `json:"error,omitempty"`
+	Attempted bool     `json:"attempted"`
+	OK        bool     `json:"ok"`
+	Provider  string   `json:"provider,omitempty"`
+	Error     string   `json:"error,omitempty"`
+	Models    []string `json:"models,omitempty"`
 }
 
 // AgentPromptResponse contains the agent's completed response and execution trace.

@@ -16,7 +16,11 @@ func probeLLM(ctx context.Context, provider string, cfg Config) *ProbeStatus {
 	ps := &ProbeStatus{Attempted: true, Provider: provider}
 	switch provider {
 	case "gemini":
-		client, err := genai.NewClient(ctx, &genai.ClientConfig{
+		// Capability check on the real generation path (minimal "ping"),
+		// not a metadata fetch. Bounded so a stuck API can't hang status.
+		pctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		client, err := genai.NewClient(pctx, &genai.ClientConfig{
 			APIKey:  cfg.APIKey,
 			Backend: genai.BackendGeminiAPI,
 		})
@@ -24,9 +28,13 @@ func probeLLM(ctx context.Context, provider string, cfg Config) *ProbeStatus {
 			ps.Error = err.Error()
 			return ps
 		}
-		_, err = client.Models.Get(ctx, firstNonEmpty(cfg.Model, "gemini-3.8-flash"), nil)
+		resp, err := client.Models.GenerateContent(pctx, firstNonEmpty(cfg.Model, "gemini-3.8-flash"), genai.Text("ping"), nil)
 		if err != nil {
 			ps.Error = err.Error()
+			return ps
+		}
+		if len(resp.Candidates) == 0 {
+			ps.Error = "gemini returned no candidates"
 			return ps
 		}
 		ps.OK = true
@@ -51,7 +59,7 @@ func probeLLM(ctx context.Context, provider string, cfg Config) *ProbeStatus {
 			return ps
 		}
 		defer func() { _ = resp.Body.Close() }()
-		if resp.StatusCode >= 400 {
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 			ps.Error = fmt.Sprintf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 			return ps
@@ -81,18 +89,25 @@ func probeOllama(ctx context.Context, cfg Config) *ProbeStatus {
 		return ps
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode >= 400 {
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		ps.Error = fmt.Sprintf("HTTP %d from Ollama", resp.StatusCode)
 		return ps
 	}
 	var payload struct {
-		Models []json.RawMessage `json:"models"`
+		Models []struct {
+			Name string `json:"name"`
+		} `json:"models"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
 		ps.Error = err.Error()
 		return ps
 	}
-	if len(payload.Models) == 0 {
+	for _, m := range payload.Models {
+		if n := strings.TrimSpace(m.Name); n != "" {
+			ps.Models = append(ps.Models, n)
+		}
+	}
+	if len(ps.Models) == 0 {
 		ps.Error = "Ollama is running but no models are installed (run: ollama pull llama3.2)"
 		return ps
 	}

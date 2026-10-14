@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/wnoronha/herd/internal/kv"
@@ -23,6 +24,9 @@ func TestBuildStatusFallbackWithoutKeys(t *testing.T) {
 	}
 	if report.BackendClass != "auto" {
 		t.Fatalf("expected auto ollama probe backend, got %s", report.BackendClass)
+	}
+	if strings.Contains(report.Model, "(") || strings.Contains(report.Model, " ") {
+		t.Fatalf("expected machine-readable model, got %q", report.Model)
 	}
 	if report.ConfiguredLLM {
 		t.Fatal("expected configured_llm false without keys")
@@ -82,6 +86,11 @@ func TestBuildStatusRoleMissingTools(t *testing.T) {
 	}
 	if report.Role == nil {
 		t.Fatal("expected role status")
+	}
+	// Unconfigured auto backend: role must reflect the Ollama probe path,
+	// not a forced fallback.
+	if report.Role.EffectiveBackend != "ollama" {
+		t.Fatalf("expected role backend ollama (auto), got %q", report.Role.EffectiveBackend)
 	}
 	foundDNS := false
 	for _, m := range report.Role.MissingFromRole {

@@ -39,10 +39,11 @@ type RoleStatus struct {
 
 // ProbeStatus holds optional live API reachability checks.
 type ProbeStatus struct {
-	Attempted bool   `json:"attempted"`
-	OK        bool   `json:"ok"`
-	Provider  string `json:"provider,omitempty"`
-	Error     string `json:"error,omitempty"`
+	Attempted bool     `json:"attempted"`
+	OK        bool     `json:"ok"`
+	Provider  string   `json:"provider,omitempty"`
+	Error     string   `json:"error,omitempty"`
+	Models    []string `json:"models,omitempty"`
 }
 
 // StatusCollectOptions controls agent status collection.
