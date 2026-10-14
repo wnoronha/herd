@@ -39,6 +39,7 @@ func BuildDefaultTools(cctx ClusterContext) []ToolDefinition {
 		buildAgentReadMailboxTool(cctx),
 		buildFetchURLTool(),
 		buildGoogleSearchTool(),
+		buildDNSLookupTool(),
 		buildFileReadTool(),
 		buildFileWriteTool(),
 		buildArtifactStoreTool(cctx),

@@ -72,7 +72,7 @@ Under asymmetric partitions, expect false suspicions before convergence. For lab
 | `cluster_cp` | Cross-node file copy |
 | `shared_kv` | Write arbitrary keys (including `mailbox:*`) |
 | `agent_send_mail` / `agent_broadcast` | Wake remote agents |
-| `fetch_url` / `google_search` | SSRF / exfiltration if model is attacker-controlled |
+| `fetch_url` / `google_search` / `dns_lookup` | SSRF / exfiltration or internal network probing if model is attacker-controlled |
 
 **Mitigation today:** `agent:policy:allowed_exec` KV key (OpenAI tool path). Gemini path should honor the same policy where tool dispatch is shared. Restrict API keys and agent definitions on untrusted nodes.
 

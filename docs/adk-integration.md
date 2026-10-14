@@ -137,6 +137,13 @@ The agent runtime is equipped with Go functions implementing the ADK Tool interf
   - `num_results` (`int`): Optional number of search results to return (default: 5, max: 10).
 - **Return Data**: List of search results with title, link snippet, and URL.
 
+### 2.9.1 `DNSLookupTool` (`dns_lookup`)
+- **Purpose**: Resolve DNS records for troubleshooting connectivity, mail routing, and service discovery.
+- **Input Parameters**:
+  - `name` (`string`): Hostname, domain, or IP (for PTR).
+  - `record_type` (`string`): `A`, `AAAA`, `MX`, `TXT`, `NS`, `CNAME`, `PTR`, `SRV`, or `AUTO` (default).
+- **Return Data**: Normalized record list with type-specific fields (`value`, `host`, `priority`, etc.).
+
 ### 2.10 `FileReadTool` (`file_read`)
 - **Purpose**: Direct local filesystem reading on the current node with line offset and count limit (safety capped at 10MB to prevent memory exhaustion).
 - **Input Parameters**:
