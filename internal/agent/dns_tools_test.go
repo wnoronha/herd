@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"net"
+	"os"
 	"strings"
 	"testing"
 )
@@ -14,6 +15,15 @@ func TestBuildDefaultToolsIncludesDNSLookup(t *testing.T) {
 		}
 	}
 	t.Fatal("dns_lookup missing from BuildDefaultTools")
+}
+
+// requireLiveDNS skips live-resolver tests unless HERD_LIVE_DNS=1, keeping
+// the default suite hermetic (CI has no external DNS guarantee).
+func requireLiveDNS(t *testing.T) {
+	t.Helper()
+	if os.Getenv("HERD_LIVE_DNS") == "" {
+		t.Skip("skipping live-DNS test (set HERD_LIVE_DNS=1 to run)")
+	}
 }
 
 func TestDNSLookupToolDefinition(t *testing.T) {
@@ -96,6 +106,7 @@ func TestDNSLookupToolIntegrationExampleCom(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping DNS integration test in -short mode")
 	}
+	requireLiveDNS(t)
 
 	tool := buildDNSLookupTool()
 	res, err := tool.Handler(context.Background(), map[string]any{
@@ -127,6 +138,7 @@ func TestDNSLookupToolIntegrationTXT(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping DNS integration test in -short mode")
 	}
+	requireLiveDNS(t)
 
 	tool := buildDNSLookupTool()
 	res, err := tool.Handler(context.Background(), map[string]any{

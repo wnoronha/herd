@@ -77,11 +77,21 @@ func TestAgentPrimitivesEndToEnd(t *testing.T) {
 	})
 }
 
-func verifyDNSLookupPrimitives(t *testing.T, ctx context.Context, toolMap map[string]agent.ToolDefinition) {
+// requireLiveDNS skips live-resolver tests unless HERD_LIVE_DNS=1, keeping
+// the default suite hermetic (CI has no external DNS guarantee).
+func requireLiveDNS(t *testing.T) {
 	t.Helper()
 	if testing.Short() {
 		t.Skip("skipping DNS integration in -short mode")
 	}
+	if os.Getenv("HERD_LIVE_DNS") == "" {
+		t.Skip("skipping live-DNS test (set HERD_LIVE_DNS=1 to run)")
+	}
+}
+
+func verifyDNSLookupPrimitives(t *testing.T, ctx context.Context, toolMap map[string]agent.ToolDefinition) {
+	t.Helper()
+	requireLiveDNS(t)
 
 	dnsTool, ok := toolMap["dns_lookup"]
 	if !ok {
@@ -103,9 +113,7 @@ func verifyDNSLookupPrimitives(t *testing.T, ctx context.Context, toolMap map[st
 
 func verifyDNSLookupAutonomousLoop(t *testing.T, ctx context.Context, nodeAlpha *clusterNode) {
 	t.Helper()
-	if testing.Short() {
-		t.Skip("skipping DNS autonomous loop in -short mode")
-	}
+	requireLiveDNS(t)
 
 	var callCount atomic.Int32
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

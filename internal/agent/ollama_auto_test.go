@@ -12,6 +12,15 @@ import (
 )
 
 func TestAutoOllamaOpenAIWhenNoCloudKeys(t *testing.T) {
+	// Scrub cloud keys for determinism but keep auto-Ollama enabled:
+	// the mock URL is an explicit BaseURL (direct path, no network probe).
+	for _, k := range []string{
+		"OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_API_BASE", "OPENAI_MODEL",
+		"GEMINI_API_KEY", "GOOGLE_API_KEY", "GEMINI_MODEL",
+		"OLLAMA_HOST", "OLLAMA_MODEL",
+	} {
+		t.Setenv(k, "")
+	}
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(OpenAIChatResponse{

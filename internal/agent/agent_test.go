@@ -59,6 +59,21 @@ func (m *mockClusterContext) GetDataDir() string {
 	return ""
 }
 
+// isolateAgentEnv scrubs cloud-model env and disables Ollama auto-probe so
+// fallback/classification tests are deterministic on any machine (a runner
+// with `ollama serve` or leaked keys must not flip results).
+func isolateAgentEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("HERD_DISABLE_AUTO_OLLAMA", "1")
+	for _, k := range []string{
+		"OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_API_BASE", "OPENAI_MODEL",
+		"GEMINI_API_KEY", "GOOGLE_API_KEY", "GEMINI_MODEL",
+		"OLLAMA_HOST", "OLLAMA_MODEL",
+	} {
+		t.Setenv(k, "")
+	}
+}
+
 func (m *mockClusterContext) JoinNode(ctx context.Context, addr string) (*ipc.JoinResponse, error) {
 	return &ipc.JoinResponse{
 		JoinedNodes: 1,
@@ -389,6 +404,7 @@ func TestDNSLookupOpenAIToolLoop(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping DNS OpenAI tool loop in -short mode")
 	}
+	requireLiveDNS(t)
 
 	mockCtx := &mockClusterContext{
 		nodeName: "test-node",
@@ -833,7 +849,7 @@ func TestEngineAgentRegistration(t *testing.T) {
 }
 
 func TestRoleBasedScopedToolsets_FallbackAndNotFound(t *testing.T) {
-	t.Setenv("HERD_DISABLE_AUTO_OLLAMA", "1")
+	isolateAgentEnv(t)
 	meta := &roster.NodeMeta{NodeName: "test-node", TailcatAddr: "tcpTest..."}
 	rStore := roster.NewStore(meta)
 	mockCtx := &mockClusterContext{nodeName: "test-node", roster: rStore}

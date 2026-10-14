@@ -11,6 +11,7 @@ import (
 )
 
 func TestBuildStatusFallbackWithoutKeys(t *testing.T) {
+	isolateAgentEnv(t)
 	mockCtx := &mockClusterContext{
 		nodeName: "test-node",
 		roster:   roster.NewStore(&roster.NodeMeta{NodeName: "test-node"}),
@@ -37,6 +38,7 @@ func TestBuildStatusFallbackWithoutKeys(t *testing.T) {
 }
 
 func TestBuildStatusKVGlobalGemini(t *testing.T) {
+	isolateAgentEnv(t)
 	kvStore := kv.NewStore("test-node")
 	globalJSON, _ := json.Marshal(AgentClusterConfig{
 		Provider: "gemini",
@@ -68,6 +70,7 @@ func TestBuildStatusKVGlobalGemini(t *testing.T) {
 }
 
 func TestBuildStatusRoleMissingTools(t *testing.T) {
+	isolateAgentEnv(t)
 	mockCtx := &mockClusterContext{
 		nodeName: "test-node",
 		roster:   roster.NewStore(&roster.NodeMeta{NodeName: "test-node"}),
