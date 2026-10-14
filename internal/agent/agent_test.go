@@ -513,7 +513,8 @@ func TestDNSLookupOpenAIToolLoop(t *testing.T) {
 		t.Fatalf("expected dns_lookup tool call, got: %+v", resp.ToolsCalled)
 	}
 	if strings.Contains(resp.ToolsCalled[0].Result, `"error"`) {
-		t.Skipf("dns unavailable: %s", resp.ToolsCalled[0].Result)
+		// Past requireLiveDNS the flag is set: fail, don't skip.
+		t.Fatalf("live dns failed in tool loop: %s", resp.ToolsCalled[0].Result)
 	}
 	if !strings.Contains(resp.ToolsCalled[0].Result, "example.com") {
 		t.Fatalf("unexpected tool result: %s", resp.ToolsCalled[0].Result)

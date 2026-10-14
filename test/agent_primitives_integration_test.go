@@ -103,7 +103,8 @@ func verifyDNSLookupPrimitives(t *testing.T, ctx context.Context, toolMap map[st
 		"record_type": "A",
 	})
 	if err != nil {
-		t.Skipf("live DNS unavailable: %v", err)
+		// Past requireLiveDNS the flag is set: fail, don't skip.
+		t.Fatalf("live DNS lookup failed: %v", err)
 	}
 	m := res.(map[string]any)
 	if m["record_count"].(int) < 1 {
@@ -201,7 +202,8 @@ func verifyDNSLookupAutonomousLoop(t *testing.T, ctx context.Context, nodeAlpha 
 		t.Fatalf("expected dns_lookup, got %s", resp.ToolsCalled[0].Name)
 	}
 	if strings.Contains(resp.ToolsCalled[0].Result, `"error"`) {
-		t.Skipf("dns_lookup failed in autonomous loop (network?): %s", resp.ToolsCalled[0].Result)
+		// Past requireLiveDNS the flag is set: fail, don't skip.
+		t.Fatalf("live dns_lookup failed in autonomous loop: %s", resp.ToolsCalled[0].Result)
 	}
 	if !strings.Contains(resp.ToolsCalled[0].Result, "example.com") || !strings.Contains(resp.ToolsCalled[0].Result, `"type":"A"`) {
 		t.Fatalf("unexpected dns_lookup result: %s", resp.ToolsCalled[0].Result)

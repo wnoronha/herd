@@ -2,10 +2,12 @@ package agent
 
 import (
 	"context"
+	"encoding/binary"
 	"net"
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestBuildDefaultToolsIncludesDNSLookup(t *testing.T) {
@@ -157,7 +159,8 @@ func TestDNSLookupToolIntegrationExampleCom(t *testing.T) {
 		"record_type": "A",
 	})
 	if err != nil {
-		t.Skipf("dns lookup unavailable: %v", err)
+		// Past requireLiveDNS the flag is set: fail, don't skip.
+		t.Fatalf("live dns lookup failed: %v", err)
 	}
 	m := res.(map[string]any)
 	if m["record_count"].(int) == 0 {
@@ -189,10 +192,120 @@ func TestDNSLookupToolIntegrationTXT(t *testing.T) {
 		"record_type": "TXT",
 	})
 	if err != nil {
-		t.Skipf("dns lookup unavailable: %v", err)
+		// Past requireLiveDNS the flag is set: fail, don't skip.
+		t.Fatalf("live dns lookup failed: %v", err)
 	}
 	m := res.(map[string]any)
 	if m["record_type"] != "TXT" {
 		t.Fatalf("unexpected record_type: %v", m["record_type"])
 	}
+}
+
+// TestExecuteDNSLookupHermeticStub exercises the A/AUTO lookup path against
+// an in-test stub DNS server. It always runs (no network, no flag): this is
+// the coverage that must never silently skip.
+func TestExecuteDNSLookupHermeticStub(t *testing.T) {
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("stub dns listen: %v", err)
+	}
+	t.Cleanup(func() { _ = pc.Close() })
+	go serveStubDNS(pc)
+
+	resolver := &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			var d net.Dialer
+			return d.DialContext(ctx, "udp", pc.LocalAddr().String())
+		},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	out, err := executeDNSLookup(ctx, resolver, "probe.test.", "A", "", "")
+	if err != nil {
+		t.Fatalf("stub A lookup: %v", err)
+	}
+	if out["record_count"] != 1 {
+		t.Fatalf("expected 1 stub A record, got: %v", out)
+	}
+	recs, ok := out["records"].([]map[string]any)
+	if !ok || len(recs) != 1 || recs[0]["value"] != "192.0.2.1" {
+		t.Fatalf("unexpected stub A records: %v", out["records"])
+	}
+
+	out, err = executeDNSLookup(ctx, resolver, "probe.test.", "AUTO", "", "")
+	if err != nil {
+		t.Fatalf("stub AUTO lookup: %v", err)
+	}
+	if out["record_count"].(int) < 1 {
+		t.Fatalf("expected stub AUTO records, got: %v", out)
+	}
+}
+
+// serveStubDNS answers A queries with 192.0.2.1 (TEST-NET-1) and NODATA for
+// anything else, until the packet conn closes.
+func serveStubDNS(pc net.PacketConn) {
+	buf := make([]byte, 1500)
+	for {
+		n, addr, err := pc.ReadFrom(buf)
+		if err != nil {
+			return
+		}
+		qend, qtype, ok := dnsQuestionEnd(buf[:n])
+		if !ok {
+			continue
+		}
+		resp := buildStubDNSResponse(buf[:n], qend, qtype)
+		_, _ = pc.WriteTo(resp, addr)
+	}
+}
+
+// dnsQuestionEnd locates the end of the question section (QNAME + QTYPE +
+// QCLASS), skipping any EDNS OPT record the resolver appends.
+func dnsQuestionEnd(query []byte) (int, uint16, bool) {
+	off := 12
+	for {
+		if off >= len(query) {
+			return 0, 0, false
+		}
+		l := int(query[off])
+		off++
+		if l == 0 {
+			break
+		}
+		if l&0xC0 != 0 {
+			return 0, 0, false
+		}
+		off += l
+	}
+	if off+4 > len(query) {
+		return 0, 0, false
+	}
+	return off + 4, binary.BigEndian.Uint16(query[off:]), true
+}
+
+func buildStubDNSResponse(query []byte, qend int, qtype uint16) []byte {
+	resp := make([]byte, 0, len(query)+16)
+	resp = append(resp, query[0:2]...) // ID
+	resp = append(resp, 0x81, 0x80)    // standard response, no error
+	resp = append(resp, query[4:6]...) // QDCOUNT
+	if qtype == 1 {
+		resp = append(resp, 0x00, 0x01) // ANCOUNT = 1
+	} else {
+		resp = append(resp, 0x00, 0x00) // NODATA
+	}
+	resp = append(resp, 0x00, 0x00, 0x00, 0x00) // NSCOUNT, ARCOUNT
+	resp = append(resp, query[12:qend]...)      // question echo (no OPT)
+	if qtype == 1 {
+		resp = append(resp,
+			0xC0, 0x0C, // pointer to QNAME
+			0x00, 0x01, // TYPE A
+			0x00, 0x01, // CLASS IN
+			0x00, 0x00, 0x00, 0x3C, // TTL 60
+			0x00, 0x04, // RDLENGTH
+			192, 0, 2, 1, // TEST-NET-1
+		)
+	}
+	return resp
 }
