@@ -16,7 +16,7 @@ func (e *Engine) executeWithOllama(ctx context.Context, req *PromptRequest, cfg 
 	url := fmt.Sprintf("%s/api/chat", strings.TrimRight(cfg.OllamaHost, "/"))
 	model := cfg.Model
 	if model == "" || strings.HasPrefix(model, "gemini-") {
-		model = "gemma2:2b"
+		model = "llama3.2"
 	}
 
 	payload := map[string]any{

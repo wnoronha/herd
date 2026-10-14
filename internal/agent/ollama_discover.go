@@ -57,9 +57,15 @@ func ollamaNameMatches(requested, available string) bool {
 	if requested == "" || available == "" {
 		return false
 	}
+	// Normalize the implicit :latest tag so "llama3.2:latest" matches "llama3.2".
+	requested = strings.TrimSuffix(requested, ":latest")
+	available = strings.TrimSuffix(available, ":latest")
 	return available == requested || strings.HasPrefix(available, requested+":")
 }
 
+// pickOllamaModel returns the installed model matching the first candidate,
+// or "" when nothing matches. It never silently substitutes an unrelated
+// model: callers must surface the miss instead of executing the wrong model.
 func pickOllamaModel(installed []string, candidates ...string) string {
 	for _, want := range candidates {
 		want = strings.TrimSpace(want)
@@ -71,9 +77,6 @@ func pickOllamaModel(installed []string, candidates ...string) string {
 				return have
 			}
 		}
-	}
-	if len(installed) > 0 {
-		return installed[0]
 	}
 	return ""
 }
@@ -118,15 +121,34 @@ func applyDiscoveredOllamaModels(ctx context.Context, cfg Config) (Config, []str
 func ollamaAutoFailureHint(ctx context.Context, cfg Config, lastErr error) string {
 	host := ollamaHost(cfg)
 	installed, err := listOllamaModels(ctx, host)
-	if err != nil {
-		return fmt.Sprintf("Could not reach Ollama at %s (%v). Start it with: ollama serve", host, err)
+	return ollamaAutoFailureHintWithList(host, installed, err, cfg, lastErr)
+}
+
+// ollamaAutoFailureHintWithList renders the hint from an already-fetched model
+// list so callers can reuse discovery instead of re-listing per prompt.
+func ollamaAutoFailureHintWithList(host string, installed []string, listErr error, cfg Config, lastErr error) string {
+	if listErr != nil {
+		return fmt.Sprintf("Could not reach Ollama at %s (%v). Start it with: ollama serve", host, listErr)
 	}
 	if len(installed) == 0 {
 		return "Ollama is running but no models are installed. Run: ollama pull llama3.2 (or set OLLAMA_MODEL to a model you pull)"
 	}
 	want := pickOllamaModel(installed, preferredOllamaCandidates(cfg)...)
+	if want == "" {
+		return fmt.Sprintf("Ollama is up with models %v but none match (want %q); pull one with: ollama pull %q", installed, firstCandidate(cfg), firstCandidate(cfg))
+	}
 	if lastErr != nil {
 		return fmt.Sprintf("Ollama is up (e.g. %q) but the chat request failed: %v", want, lastErr)
 	}
 	return fmt.Sprintf("Ollama is up with models %v but chat did not succeed; try: ollama run %q", installed, want)
+}
+
+// firstCandidate reports the model the user asked for, for hint messages.
+func firstCandidate(cfg Config) string {
+	for _, c := range preferredOllamaCandidates(cfg) {
+		if strings.TrimSpace(c) != "" {
+			return strings.TrimSpace(c)
+		}
+	}
+	return "llama3.2"
 }

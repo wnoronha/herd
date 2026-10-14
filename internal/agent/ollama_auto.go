@@ -11,7 +11,15 @@ const defaultOllamaOpenAIBase = "http://localhost:11434/v1"
 
 // openAIPathExplicit is true when the user configured OpenAI-compatible access (not auto-Ollama).
 func openAIPathExplicit(cfg Config) bool {
-	return cfg.OpenAIAPIKey != "" || os.Getenv("OPENAI_BASE_URL") != "" || os.Getenv("OPENAI_API_BASE") != "" || cfg.Provider == "openai"
+	if cfg.OpenAIAPIKey != "" || os.Getenv("OPENAI_BASE_URL") != "" || os.Getenv("OPENAI_API_BASE") != "" || cfg.Provider == "openai" {
+		return true
+	}
+	// A custom BaseURL (anything but the Ollama default) is an explicit
+	// OpenAI-compatible endpoint even without a key.
+	if base := strings.TrimRight(strings.TrimSpace(cfg.OpenAIBaseURL), "/"); base != "" && base != defaultOllamaOpenAIBase {
+		return true
+	}
+	return false
 }
 
 func ollamaAutoOpenAICfg(cfg Config) Config {
@@ -50,7 +58,7 @@ func (e *Engine) tryAutoOllamaBackends(
 		return nil, "", nil
 	}
 
-	discovered, _, _ := applyDiscoveredOllamaModels(ctx, effCfg)
+	discovered, installed, listErr := applyDiscoveredOllamaModels(ctx, effCfg)
 	effCfg = discovered
 
 	var lastErr error
@@ -78,7 +86,8 @@ func (e *Engine) tryAutoOllamaBackends(
 	}
 	hint := ""
 	if lastErr != nil || resp == nil {
-		hint = ollamaAutoFailureHint(ctx, effCfg, lastErr)
+		// Reuse the discovery listing instead of re-fetching /api/tags.
+		hint = ollamaAutoFailureHintWithList(ollamaHost(effCfg), installed, listErr, effCfg, lastErr)
 	}
 	return nil, hint, nil
 }
