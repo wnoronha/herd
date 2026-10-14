@@ -32,7 +32,7 @@ Most commands share daemon connection flags (`--node-name`, `--socket`) as **per
 | Log Level | *(daemon only)* | `HERD_LOG_LEVEL` | `info` (`debug`, `warn`, `error`) |
 | Log Format | *(daemon only)* | `HERD_LOG_FORMAT` | `console` (`json`) |
 
-The flags --bind-addr, --bind-port, --join, --data-dir, --config-dir, and --state-dir are specific to `herd daemon` and are documented in the Daemon section.
+The flags --bind-addr, --bind-port, --join, --advertise-addr, --mdns, --data-dir, --config-dir, and --state-dir are specific to `herd daemon` and are documented in the Daemon section.
 
 ---
 
@@ -51,6 +51,11 @@ HERD_NODE_NAME=node-2 herd daemon --join tcpGFw...<node-1-tailcat-addr>...
 # Start with auto-selected port and custom data directory
 herd daemon --node-name worker-1 --bind-port 0 --data-dir /var/lib/herd
 ```
+
+Local discovery is on by default: nodes on the same LAN find each other
+with no flags (see `home-lan`). Disable with `--mdns=false`
+(`HERD_MDNS=0`); pin the announced LAN address with
+`--advertise-addr 192.168.1.50` (`HERD_ADVERTISE_ADDR`) on multihomed hosts.
 
 ---
 
