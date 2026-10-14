@@ -119,7 +119,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 	reader := bufio.NewReader(conn)
 	writer := bufio.NewWriter(conn)
 
-	// Connection-scoped context: cancelled when the client disconnects,
+	// Connection-scoped context: canceled when the client disconnects,
 	// independent of daemon Stop/runCancel (see baseRequestContext).
 	connCtx, connCancel := context.WithCancel(s.baseRequestContext())
 	defer connCancel()

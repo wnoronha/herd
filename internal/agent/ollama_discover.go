@@ -118,14 +118,8 @@ func applyDiscoveredOllamaModels(ctx context.Context, cfg Config) (Config, []str
 	return out, installed, nil
 }
 
-func ollamaAutoFailureHint(ctx context.Context, cfg Config, lastErr error) string {
-	host := ollamaHost(cfg)
-	installed, err := listOllamaModels(ctx, host)
-	return ollamaAutoFailureHintWithList(host, installed, err, cfg, lastErr)
-}
-
-// ollamaAutoFailureHintWithList renders the hint from an already-fetched model
-// list so callers can reuse discovery instead of re-listing per prompt.
+// ollamaAutoFailureHintWithList renders the failure hint from an already-fetched
+// model list so callers reuse discovery instead of re-listing per prompt.
 func ollamaAutoFailureHintWithList(host string, installed []string, listErr error, cfg Config, lastErr error) string {
 	if listErr != nil {
 		return fmt.Sprintf("Could not reach Ollama at %s (%v). Start it with: ollama serve", host, listErr)

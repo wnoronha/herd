@@ -101,7 +101,7 @@ func (d *Daemon) Start(ctx context.Context) error {
 		d.mu.Unlock()
 		return errors.New("daemon already started")
 	}
-	// Detach lifetime from the caller: a short-lived/cancelled caller ctx
+	// Detach lifetime from the caller: a short-lived/canceled caller ctx
 	// must not kill the daemon (IPC handlers, streams, watcher, seed join).
 	// Values are preserved; only cancellation is detached.
 	base := context.Background()

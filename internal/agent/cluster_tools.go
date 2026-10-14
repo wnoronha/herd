@@ -47,6 +47,106 @@ func forwardPortArg(v any) (int, bool) {
 	return p, true
 }
 
+// startClusterForward validates, reserves, and starts one forward tunnel.
+// The reservation is inserted under a single lock before binding so
+// concurrent starts on the same endpoint fail deterministically instead of
+// racing through check-then-act and leaking a listener.
+func startClusterForward(ctx context.Context, cctx ClusterContext, args map[string]any) (any, error) {
+	localPort, ok := forwardPortArg(args["local_port"])
+	if !ok {
+		return nil, errors.New("parameter 'local_port' must be an integer 1-65535")
+	}
+
+	targetNode, ok := args["target_node"].(string)
+	if !ok || strings.TrimSpace(targetNode) == "" {
+		return nil, errors.New("parameter 'target_node' is required")
+	}
+	targetNode = strings.TrimSpace(targetNode)
+
+	targetPort, ok := forwardPortArg(args["target_port"])
+	if !ok {
+		return nil, errors.New("parameter 'target_port' must be an integer 1-65535")
+	}
+
+	bindHost := "127.0.0.1"
+	if bh, ok := args["bind_host"].(string); ok && strings.TrimSpace(bh) != "" {
+		bindHost = strings.TrimSpace(bh)
+	}
+
+	// Key includes bind host so distinct interfaces don't collide.
+	tunnelID := fmt.Sprintf("fwd-%s-%d", bindHost, localPort)
+	globalForwardRegistry.mu.Lock()
+	if _, exists := globalForwardRegistry.tunnels[tunnelID]; exists {
+		globalForwardRegistry.mu.Unlock()
+		return nil, fmt.Errorf("a forward tunnel is already running on %s (id: %s)", net.JoinHostPort(bindHost, strconv.Itoa(localPort)), tunnelID)
+	}
+	globalForwardRegistry.tunnels[tunnelID] = &ActiveForward{
+		ID:         tunnelID,
+		TargetNode: targetNode,
+		StartedAt:  time.Now().UTC(),
+	}
+	globalForwardRegistry.mu.Unlock()
+
+	releaseReservation := func() {
+		globalForwardRegistry.mu.Lock()
+		if cur, ok := globalForwardRegistry.tunnels[tunnelID]; ok && cur.forwarder == nil {
+			delete(globalForwardRegistry.tunnels, tunnelID)
+		}
+		globalForwardRegistry.mu.Unlock()
+	}
+
+	// Resolve target node IP address via roster store if possible.
+	targetAddr := ""
+	if cctx != nil {
+		store := cctx.GetRosterStore()
+		if store != nil {
+			for _, m := range store.GetMembers() {
+				if m.Name == targetNode {
+					targetAddr = net.JoinHostPort(m.Addr, strconv.Itoa(targetPort))
+					break
+				}
+			}
+		}
+	}
+	if targetAddr == "" {
+		targetAddr = net.JoinHostPort(targetNode, strconv.Itoa(targetPort))
+	}
+
+	localListen := net.JoinHostPort(bindHost, strconv.Itoa(localPort))
+	pf := subsys.NewPortForwarder(localListen, targetAddr, nil)
+
+	// Owned detached lifetime: independent of the request ctx,
+	// canceled via the registry entry on stop/StopAll.
+	fwdCtx, cancel := context.WithCancel(context.Background())
+	if err := pf.Start(fwdCtx); err != nil {
+		cancel()
+		releaseReservation()
+		return nil, fmt.Errorf("failed to start port forwarder on %s: %w", localListen, err)
+	}
+
+	fwdInfo := &ActiveForward{
+		ID:         tunnelID,
+		LocalAddr:  pf.LocalAddr().String(),
+		TargetNode: targetNode,
+		TargetAddr: targetAddr,
+		StartedAt:  time.Now().UTC(),
+		forwarder:  pf,
+		cancel:     cancel,
+	}
+
+	globalForwardRegistry.mu.Lock()
+	globalForwardRegistry.tunnels[tunnelID] = fwdInfo
+	globalForwardRegistry.mu.Unlock()
+
+	return map[string]any{
+		"status":      "started",
+		"id":          tunnelID,
+		"local_addr":  fwdInfo.LocalAddr,
+		"target_node": targetNode,
+		"target_addr": targetAddr,
+	}, nil
+}
+
 // StopAllClusterForwards cancels and stops every agent-owned forward tunnel.
 // The daemon calls this on Stop so agent tunnels don't leak listeners.
 func StopAllClusterForwards() {
@@ -112,102 +212,7 @@ func buildClusterForwardTool(cctx ClusterContext) ToolDefinition {
 
 			switch action {
 			case "start":
-				localPort, ok := forwardPortArg(args["local_port"])
-				if !ok {
-					return nil, errors.New("parameter 'local_port' must be an integer 1-65535")
-				}
-
-				targetNode, ok := args["target_node"].(string)
-				if !ok || strings.TrimSpace(targetNode) == "" {
-					return nil, errors.New("parameter 'target_node' is required")
-				}
-				targetNode = strings.TrimSpace(targetNode)
-
-				targetPort, ok := forwardPortArg(args["target_port"])
-				if !ok {
-					return nil, errors.New("parameter 'target_port' must be an integer 1-65535")
-				}
-
-				bindHost := "127.0.0.1"
-				if bh, ok := args["bind_host"].(string); ok && strings.TrimSpace(bh) != "" {
-					bindHost = strings.TrimSpace(bh)
-				}
-
-				// Key includes bind host so distinct interfaces don't collide.
-				tunnelID := fmt.Sprintf("fwd-%s-%d", bindHost, localPort)
-				globalForwardRegistry.mu.Lock()
-				if _, exists := globalForwardRegistry.tunnels[tunnelID]; exists {
-					globalForwardRegistry.mu.Unlock()
-					return nil, fmt.Errorf("a forward tunnel is already running on %s (id: %s)", net.JoinHostPort(bindHost, strconv.Itoa(localPort)), tunnelID)
-				}
-				// Reserve the ID before binding so concurrent starts on the
-				// same endpoint fail deterministically instead of racing
-				// through check-then-act and leaking a listener.
-				globalForwardRegistry.tunnels[tunnelID] = &ActiveForward{
-					ID:         tunnelID,
-					TargetNode: targetNode,
-					StartedAt:  time.Now().UTC(),
-				}
-				globalForwardRegistry.mu.Unlock()
-
-				releaseReservation := func() {
-					globalForwardRegistry.mu.Lock()
-					if cur, ok := globalForwardRegistry.tunnels[tunnelID]; ok && cur.forwarder == nil {
-						delete(globalForwardRegistry.tunnels, tunnelID)
-					}
-					globalForwardRegistry.mu.Unlock()
-				}
-
-				// Resolve target node IP address via roster store if possible
-				targetAddr := ""
-				if cctx != nil {
-					store := cctx.GetRosterStore()
-					if store != nil {
-						for _, m := range store.GetMembers() {
-							if m.Name == targetNode {
-								targetAddr = net.JoinHostPort(m.Addr, strconv.Itoa(targetPort))
-								break
-							}
-						}
-					}
-				}
-				if targetAddr == "" {
-					targetAddr = net.JoinHostPort(targetNode, strconv.Itoa(targetPort))
-				}
-
-				localListen := net.JoinHostPort(bindHost, strconv.Itoa(localPort))
-				pf := subsys.NewPortForwarder(localListen, targetAddr, nil)
-
-				// Owned detached lifetime: independent of the request ctx,
-				// cancelled via the registry entry on stop/StopAll.
-				fwdCtx, cancel := context.WithCancel(context.Background())
-				if err := pf.Start(fwdCtx); err != nil {
-					cancel()
-					releaseReservation()
-					return nil, fmt.Errorf("failed to start port forwarder on %s: %w", localListen, err)
-				}
-
-				fwdInfo := &ActiveForward{
-					ID:         tunnelID,
-					LocalAddr:  pf.LocalAddr().String(),
-					TargetNode: targetNode,
-					TargetAddr: targetAddr,
-					StartedAt:  time.Now().UTC(),
-					forwarder:  pf,
-					cancel:     cancel,
-				}
-
-				globalForwardRegistry.mu.Lock()
-				globalForwardRegistry.tunnels[tunnelID] = fwdInfo
-				globalForwardRegistry.mu.Unlock()
-
-				return map[string]any{
-					"status":      "started",
-					"id":          tunnelID,
-					"local_addr":  fwdInfo.LocalAddr,
-					"target_node": targetNode,
-					"target_addr": targetAddr,
-				}, nil
+				return startClusterForward(ctx, cctx, args)
 
 			case "stop":
 				idVal, _ := args["id"].(string)

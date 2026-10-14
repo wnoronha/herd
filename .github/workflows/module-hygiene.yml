@@ -1,6 +1,13 @@
 name: Module hygiene
 
 on:
+  pull_request:
+  push:
+    branches:
+      - '**'
+      - '!beadwork'
+    tags-ignore:
+      - '**'
   schedule:
     - cron: "0 12 * * 1"
   workflow_dispatch:
