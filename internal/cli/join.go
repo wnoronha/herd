@@ -2,27 +2,12 @@ package cli
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"time"
 )
 
-// RunJoin executes the 'herd join <address>' command.
-func RunJoin(args []string) error {
-	fs := flag.NewFlagSet("join", flag.ExitOnError)
-	socketFlags := RegisterSocketFlags(fs)
-
-	if err := ParseFlags(fs, args); err != nil {
-		return err
-	}
-
-	remaining := fs.Args()
-	if len(remaining) < 1 {
-		return fmt.Errorf("usage: herd join [flags] <address:port>")
-	}
-	targetAddr := remaining[0]
-
-	client, _, err := ConnectDaemon(socketFlags)
+func joinAction(targetAddr string) error {
+	client, _, err := daemonClient()
 	if err != nil {
 		return err
 	}

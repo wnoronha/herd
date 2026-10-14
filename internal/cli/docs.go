@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,26 +9,16 @@ import (
 	"github.com/wnoronha/herd/docs"
 )
 
-// RunDocs handles the 'herd docs' subcommand.
-func RunDocs(args []string) error {
-	fs := flag.NewFlagSet("docs", flag.ExitOnError)
-	exportDir := fs.String("export", "", "Export all embedded docs to the specified directory")
-	all := fs.Bool("all", false, "Display all documentation guides concatenated")
-
-	if err := ParseFlags(fs, args); err != nil {
-		return err
+func docsAction(topic string, exportDir string, all bool) error {
+	if exportDir != "" {
+		return exportDocs(exportDir)
 	}
 
-	if *exportDir != "" {
-		return exportDocs(*exportDir)
-	}
-
-	remaining := fs.Args()
-	if len(remaining) == 0 && !*all {
+	if topic == "" && !all {
 		return listDocsSummary()
 	}
 
-	if *all {
+	if all {
 		allDocs, err := docs.ListDocs()
 		if err != nil {
 			return err
@@ -45,15 +34,6 @@ func RunDocs(args []string) error {
 			fmt.Println(content)
 		}
 		return nil
-	}
-
-	topic := remaining[0]
-	if topic == "export" {
-		targetDir := "./docs"
-		if len(remaining) > 1 {
-			targetDir = remaining[1]
-		}
-		return exportDocs(targetDir)
 	}
 
 	content, err := docs.GetDoc(topic)
@@ -89,7 +69,7 @@ func listDocsSummary() error {
 	fmt.Println("  herd docs commands           View complete CLI reference")
 	fmt.Println("  herd docs cross-platform     View compilation and Raspberry Pi guide")
 	fmt.Println("  herd docs adk-integration    View Google ADK agent integration guide")
-	fmt.Println("  herd docs export ./my-docs   Export all markdown files to a directory")
+	fmt.Println("  herd docs --export ./my-docs Export all markdown files to a directory")
 	return nil
 }
 

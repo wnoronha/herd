@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"net"
 	"os"
@@ -14,27 +13,7 @@ import (
 	"github.com/wnoronha/herd/internal/subsys"
 )
 
-// RunForward executes the 'herd forward' command.
-func RunForward(args []string) error {
-	fs := flag.NewFlagSet("forward", flag.ExitOnError)
-	socketFlags := RegisterSocketFlags(fs)
-	bindHost := fs.String("bind", "127.0.0.1", "Local IP interface to bind listener to")
-
-	if err := ParseFlags(fs, args); err != nil {
-		return err
-	}
-
-	remaining := fs.Args()
-	if len(remaining) < 2 {
-		return fmt.Errorf("usage: herd forward [flags] <local-port> <target-node>:<target-port>")
-	}
-
-	localPort, err := strconv.Atoi(remaining[0])
-	if err != nil || localPort <= 0 {
-		return fmt.Errorf("invalid local port: %s", remaining[0])
-	}
-
-	targetExpr := remaining[1]
+func forwardAction(localPort int, targetExpr, bindHost string) error {
 	parts := strings.Split(targetExpr, ":")
 	if len(parts) != 2 {
 		return fmt.Errorf("target must be in format <target-node>:<target-port>, got %s", targetExpr)
@@ -46,7 +25,7 @@ func RunForward(args []string) error {
 		return fmt.Errorf("invalid target port: %s", parts[1])
 	}
 
-	client, _, err := ConnectDaemon(socketFlags)
+	client, _, err := daemonClient()
 	if err != nil {
 		return err
 	}
@@ -64,7 +43,7 @@ func RunForward(args []string) error {
 		targetAddr = net.JoinHostPort(targetNode, strconv.Itoa(targetPort))
 	}
 
-	localListen := net.JoinHostPort(*bindHost, strconv.Itoa(localPort))
+	localListen := net.JoinHostPort(bindHost, strconv.Itoa(localPort))
 	pf := subsys.NewPortForwarder(localListen, targetAddr, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())

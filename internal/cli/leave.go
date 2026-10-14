@@ -2,21 +2,12 @@ package cli
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"time"
 )
 
-// RunLeave executes the 'herd leave' command.
-func RunLeave(args []string) error {
-	fs := flag.NewFlagSet("leave", flag.ExitOnError)
-	socketFlags := RegisterSocketFlags(fs)
-
-	if err := ParseFlags(fs, args); err != nil {
-		return err
-	}
-
-	client, _, err := ConnectDaemon(socketFlags)
+func leaveAction() error {
+	client, _, err := daemonClient()
 	if err != nil {
 		return err
 	}

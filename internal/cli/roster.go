@@ -3,24 +3,14 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"os"
 	"strings"
 	"text/tabwriter"
 )
 
-// RunRoster executes the 'herd roster' command.
-func RunRoster(args []string) error {
-	fs := flag.NewFlagSet("roster", flag.ExitOnError)
-	socketFlags := RegisterSocketFlags(fs)
-	jsonOutput := fs.Bool("json", false, "Output roster as JSON")
-
-	if err := ParseFlags(fs, args); err != nil {
-		return err
-	}
-
-	client, cfg, err := ConnectDaemon(socketFlags)
+func rosterAction(jsonOutput bool) error {
+	client, cfg, err := daemonClient()
 	if err != nil {
 		return err
 	}
@@ -33,7 +23,7 @@ func RunRoster(args []string) error {
 		return DaemonUnreachableError(cfg, err)
 	}
 
-	if *jsonOutput {
+	if jsonOutput {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		return enc.Encode(roster)

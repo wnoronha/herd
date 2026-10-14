@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"flag"
 	"fmt"
 	"time"
 
@@ -9,18 +8,10 @@ import (
 	"github.com/wnoronha/herd/internal/ipc"
 )
 
-// SocketFlags are shared daemon socket / node-name flags for CLI commands.
+// SocketFlags are daemon connection overrides (bound to root persistent flags).
 type SocketFlags struct {
 	NodeName   *string
 	SocketPath *string
-}
-
-// RegisterSocketFlags adds --node-name and --socket to a command flag set.
-func RegisterSocketFlags(fs *flag.FlagSet) SocketFlags {
-	return SocketFlags{
-		NodeName:   fs.String("node-name", "", "Local node daemon to communicate with"),
-		SocketPath: fs.String("socket", "", "Daemon Unix domain socket path"),
-	}
 }
 
 // ConnectDaemon resolves config and returns an IPC client for the local daemon.
@@ -33,6 +24,10 @@ func ConnectDaemon(flags SocketFlags) (*ipc.Client, *config.Config, error) {
 		return nil, nil, fmt.Errorf("failed to load config: %w", err)
 	}
 	return ipc.NewClient(cfg.SocketPath), cfg, nil
+}
+
+func daemonClient() (*ipc.Client, *config.Config, error) {
+	return ConnectDaemon(rootSocketFlags())
 }
 
 // DaemonUnreachableError formats a consistent message when the daemon socket is down.

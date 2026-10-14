@@ -15,9 +15,14 @@ See also:
 
 ## 1. Global Flags & Environment Overrides
 
-Most CLI commands use the same daemon connection flags through `internal/cli/common.go`. Each command respects CLI flags and environment variables.
+The CLI is built with [Cobra](https://github.com/spf13/cobra). Run `herd --help` or `herd <command> --help` for usage. Shell completion:
 
-You can put flags **before or after** positional arguments (for example `herd kv set cluster/motd "hello" --socket /path/herd.sock`). The CLI reorders flags internally before parsing.
+```bash
+herd completion bash > /etc/bash_completion.d/herd   # or ~/.bash_completion
+herd completion zsh  >> ~/.zshrc                    # then enable compinit
+```
+
+Most commands share daemon connection flags (`--node-name`, `--socket`) as **persistent** root flags on `herd`. Each command also respects the environment variables below. Put global flags before the subcommand or immediately after it (standard Cobra parsing).
 
 | Setting | Flag | Environment Variable | Default |
 |---|---|---|---|
@@ -249,7 +254,7 @@ Flags:
 - `--dir <path>`: Directory to scaffold `AGENTS.md` into (default: current directory)
 - `--force`: Overwrite existing `AGENTS.md` file
 - `--global`: Scaffold into global user configuration (`~/.config/herd/agents`)
-- `--node-name <name>`: Target node name to scaffold in that node's config directory
+- `--for-node <name>`: Scaffold into that node's config directory (`~/.config/herd/<node>/agents`)
 
 ### `herd agent prompt "<task>" [flags]`
 Sends a task prompt to the local embedded AI agent (or a remote node agent). Supports activating declarative roles from Markdown definitions (`AGENTS.md` and `*.agent.md`).

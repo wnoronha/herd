@@ -4,6 +4,7 @@ go 1.27.2
 
 require (
 	github.com/hashicorp/memberlist v0.7.0
+	github.com/spf13/cobra v1.10.2
 	github.com/tailscale/tailcat v0.7.0
 	go.uber.org/zap v1.28.0
 	go4.org/mem v0.0.0-20240501181205-ae6ca9944745
@@ -47,6 +48,7 @@ require (
 	github.com/hashicorp/go-sockaddr v1.0.7 // indirect
 	github.com/hashicorp/golang-lru v1.0.2 // indirect
 	github.com/hdevalence/ed25519consensus v0.2.0 // indirect
+	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jsimonetti/rtnetlink v1.4.1 // indirect
 	github.com/klauspost/compress v1.19.1 // indirect
 	github.com/kr/fs v0.1.0 // indirect
@@ -58,6 +60,7 @@ require (
 	github.com/pkg/sftp v1.13.6 // indirect
 	github.com/safchain/ethtool v0.3.0 // indirect
 	github.com/sean-/seed v0.0.0-20170313163322-e2103e2c3529 // indirect
+	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/tailscale/certstore v0.1.1-0.20260409135935-3638fb84b77d // indirect
 	github.com/tailscale/gliderssh v0.3.4-0.20260716005906-1a0f895faf28 // indirect
 	github.com/tailscale/go-winio v0.0.0-20231025203758-c4f33415bf55 // indirect

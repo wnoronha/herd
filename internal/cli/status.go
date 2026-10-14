@@ -3,22 +3,12 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"os"
 )
 
-// RunStatus executes the 'herd status' command.
-func RunStatus(args []string) error {
-	fs := flag.NewFlagSet("status", flag.ExitOnError)
-	socketFlags := RegisterSocketFlags(fs)
-	jsonOutput := fs.Bool("json", false, "Output status as JSON")
-
-	if err := ParseFlags(fs, args); err != nil {
-		return err
-	}
-
-	client, cfg, err := ConnectDaemon(socketFlags)
+func statusAction(jsonOutput bool) error {
+	client, cfg, err := daemonClient()
 	if err != nil {
 		return err
 	}
@@ -31,7 +21,7 @@ func RunStatus(args []string) error {
 		return DaemonUnreachableError(cfg, err)
 	}
 
-	if *jsonOutput {
+	if jsonOutput {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		return enc.Encode(status)
