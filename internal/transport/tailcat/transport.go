@@ -355,20 +355,21 @@ func (t *Transport) sendPacketStream(addr string, b []byte) (time.Time, error) {
 			if attempt == 0 {
 				continue
 			}
-			return time.Now(), err
+			return time.Time{}, err
 		}
 
-		entry.mu.Lock()
-		_ = entry.conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
+		// Build the frame outside the per-peer lock to keep the
+		// critical section to the deadline-bounded write only.
 		frameLen, ferr := uint32FrameLen(len(b))
 		if ferr != nil {
-			entry.mu.Unlock()
-			return time.Now(), ferr
+			return time.Time{}, ferr
 		}
 		frame := make([]byte, 4+len(b))
 		binary.BigEndian.PutUint32(frame[:4], frameLen)
 		copy(frame[4:], b)
 
+		entry.mu.Lock()
+		_ = entry.conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
 		_, err = entry.conn.Write(frame)
 		entry.mu.Unlock()
 
@@ -380,7 +381,7 @@ func (t *Transport) sendPacketStream(addr string, b []byte) (time.Time, error) {
 		t.removePacketConn(entry)
 	}
 
-	return time.Now(), fmt.Errorf("failed to deliver packet over stream to %s", addr)
+	return time.Time{}, fmt.Errorf("failed to deliver packet over stream to %s", addr)
 }
 
 func (t *Transport) getOrCreatePacketConn(addr string) (*packetConnEntry, error) {
@@ -569,7 +570,10 @@ func (t *Transport) DialStream(addr string, streamType byte, timeout time.Durati
 	var rawConn net.Conn
 	var dialErr error
 
-	targetPort := uint16Port(t.actualPort)
+	targetPort, err := uint16Port(t.actualPort)
+	if err != nil {
+		return nil, err
+	}
 	tcEndpoint := addr
 	if h, pStr, err := splitHostPortSafe(addr); err == nil && pStr != "" {
 		if p, err := strconv.ParseUint(pStr, 10, 16); err == nil && p > 0 {
