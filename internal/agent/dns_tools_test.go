@@ -53,6 +53,18 @@ func TestValidateDNSLookupName(t *testing.T) {
 		{"192.0.2.1", false},
 		{"has space.example.com", true},
 		{"bad/name", true},
+		{"evil.example.com;id", true},
+		{"a$(id).example.com", true},
+		{"a|b.example.com", true},
+		{"back`tick.example.com", true},
+		{"under!bang.example.com", true},
+		{"double..dots.example.com", true},
+		{"localhost", true},
+		{"svc.cluster.local", true},
+		{"db.internal", true},
+		{"singlelabel", true},
+		{"127.0.0.1", true},
+		{"10.0.0.5", false},
 	}
 	for _, tc := range cases {
 		err := validateDNSLookupName(tc.name)
@@ -96,9 +108,40 @@ func TestDNSLookupToolValidationErrors(t *testing.T) {
 
 func TestExecuteDNSLookupUnsupportedType(t *testing.T) {
 	r := net.DefaultResolver
-	_, err := executeDNSLookup(context.Background(), r, "example.com", "SOA")
+	_, err := executeDNSLookup(context.Background(), r, "example.com", "SOA", "", "")
 	if err == nil || !strings.Contains(err.Error(), "unsupported record_type") {
 		t.Fatalf("expected unsupported type error, got: %v", err)
+	}
+}
+
+func TestDNSLookupSRVRequiresServiceProto(t *testing.T) {
+	tool := buildDNSLookupTool()
+	ctx := context.Background()
+
+	_, err := tool.Handler(ctx, map[string]any{"name": "example.com", "record_type": "SRV"})
+	if err == nil || !strings.Contains(err.Error(), "requires 'service' and 'proto'") {
+		t.Fatalf("expected SRV service/proto error, got: %v", err)
+	}
+
+	_, err = tool.Handler(ctx, map[string]any{
+		"name": "example.com", "record_type": "SRV", "service": "http",
+	})
+	if err == nil || !strings.Contains(err.Error(), "both 'service' and 'proto'") {
+		t.Fatalf("expected SRV partial-params error, got: %v", err)
+	}
+
+	_, err = tool.Handler(ctx, map[string]any{
+		"name": "example.com", "record_type": "A", "service": "http", "proto": "tcp",
+	})
+	if err == nil || !strings.Contains(err.Error(), "SRV lookups only") {
+		t.Fatalf("expected service/proto scope error, got: %v", err)
+	}
+}
+
+func TestInternalNameOverride(t *testing.T) {
+	t.Setenv("HERD_ALLOW_INTERNAL_DNS", "1")
+	if err := validateDNSLookupName("localhost"); err != nil {
+		t.Fatalf("expected override to allow localhost, got: %v", err)
 	}
 }
 

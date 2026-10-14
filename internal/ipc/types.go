@@ -196,21 +196,21 @@ type AgentStatusRequest struct {
 
 // AgentStatusResponse reports LLM backend, config sources, and personas for one node.
 type AgentStatusResponse struct {
-	NodeName             string              `json:"node_name"`
-	BackendClass         string              `json:"backend_class"`
-	BackendProvider      string              `json:"backend_provider"`
-	Model                string              `json:"model"`
-	FallbackModel        string              `json:"fallback_model,omitempty"`
-	ConfiguredLLM        bool                `json:"configured_llm"`
-	ConfigSources        []string            `json:"config_sources,omitempty"`
-	KVGlobalPresent      bool                `json:"kv_global_present"`
-	KVGlobalSummary      string              `json:"kv_global_summary,omitempty"`
-	RegisteredToolsCount int                 `json:"registered_tools_count"`
-	Personas             []AgentPersonaStatus  `json:"personas,omitempty"`
-	Role                 *AgentRoleStatus    `json:"role,omitempty"`
-	Probe                *AgentProbeStatus   `json:"probe,omitempty"`
-	Reason               string              `json:"reason,omitempty"`
-	FixHints             []string            `json:"fix_hints,omitempty"`
+	NodeName             string               `json:"node_name"`
+	BackendClass         string               `json:"backend_class"`
+	BackendProvider      string               `json:"backend_provider"`
+	Model                string               `json:"model"`
+	FallbackModel        string               `json:"fallback_model,omitempty"`
+	ConfiguredLLM        bool                 `json:"configured_llm"`
+	ConfigSources        []string             `json:"config_sources,omitempty"`
+	KVGlobalPresent      bool                 `json:"kv_global_present"`
+	KVGlobalSummary      string               `json:"kv_global_summary,omitempty"`
+	RegisteredToolsCount int                  `json:"registered_tools_count"`
+	Personas             []AgentPersonaStatus `json:"personas,omitempty"`
+	Role                 *AgentRoleStatus     `json:"role,omitempty"`
+	Probe                *AgentProbeStatus    `json:"probe,omitempty"`
+	Reason               string               `json:"reason,omitempty"`
+	FixHints             []string             `json:"fix_hints,omitempty"`
 }
 
 // AgentPersonaStatus summarizes a declarative persona tool allowlist.
@@ -311,4 +311,3 @@ type DaemonHandler interface {
 	MailList(ctx context.Context, req *MailListRequest) (*MailListResponse, error)
 	MailRead(ctx context.Context, req *MailReadRequest) (*MailReadResponse, error)
 }
-

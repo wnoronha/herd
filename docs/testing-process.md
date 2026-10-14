@@ -24,9 +24,9 @@ Before you commit or publish a release, run the quality gate:
 make check
 ```
 
-Ensure `golangci-lint` is on your `PATH` (for example `$(go env GOPATH)/bin`).
+Ensure `golangci-lint` is on your `PATH` (for example `$(go env GOPATH)/bin`). `govulncheck` is pinned in CI (`golang.org/x/vuln/cmd/govulncheck@v1.9.0`); install the same version locally with `go install golang.org/x/vuln/cmd/govulncheck@v1.9.0`.
 
-The GitHub **CI** workflow also runs **govulncheck** on every push and pull request. The **Module hygiene** workflow runs weekly and fails if `go mod tidy` would change `go.mod` or `go.sum`.
+The GitHub **CI** workflow also runs **govulncheck** on every push and pull request. The **Module hygiene** workflow runs on pull requests (plus weekly) and fails if `go mod tidy` would change `go.mod` or `go.sum`.
 
 You can also run individual package test suites:
 ```bash
@@ -57,13 +57,12 @@ Agent-specific coverage includes:
 
 - **Auto-Ollama** (`ollama_auto_test.go`, `ollama_discover_test.go`): OpenAI-compatible mock and model tag selection.
 - **`herd agent status`**: `status_test.go` (backend class `auto` / `llm` / `fallback`), probe against Ollama `/api/tags`.
-- **`dns_lookup`**: `dns_tools_test.go`; optional live checks in `test/agent_primitives_integration_test.go` (skip with `-short`).
+- **`dns_lookup`**: `dns_tools_test.go`; live-resolver checks run only with `HERD_LIVE_DNS=1` (default suite is hermetic; `test/agent_primitives_integration_test.go` gates the same way, skip with `-short`).
 - **Tool loops**: `agent_test.go` (`TestDNSLookupOpenAIToolLoop`, cluster tool mocks).
 
 After changing agent providers, tools, or IPC (`AgentStatus`), update [agent-quickstart.md](agent-quickstart.md), [commands.md](commands.md) §7, and [adk-integration.md](adk-integration.md) §5 in the same change.
 
-Unit tests that assert deterministic fallback behavior set `HERD_DISABLE_AUTO_OLLAMA=1` so a local `ollama serve` does not change results.
-
+Unit tests that assert deterministic fallback behavior call `isolateAgentEnv` (`internal/agent` tests) or `testutil.SetupHermeticEnvironment` (integration tests): `HERD_DISABLE_AUTO_OLLAMA=1` plus scrubbed `OPENAI_*/GEMINI_*/GOOGLE_*/OLLAMA_*` env, so a local `ollama serve` or leaked keys do not change results. Live-DNS tests additionally require `HERD_LIVE_DNS=1`.
 ---
 
 ## 2. Multi-Node Local Verification Script

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 	"strings"
 	"time"
 )
@@ -12,7 +13,7 @@ import (
 func buildDNSLookupTool() ToolDefinition {
 	return ToolDefinition{
 		Name:        "dns_lookup",
-		Description: "Look up DNS records for a hostname or IP address (A, AAAA, MX, TXT, NS, CNAME, PTR, SRV, or AUTO for address summary).",
+		Description: "Look up DNS records for a hostname or IP address (A, AAAA, MX, TXT, NS, CNAME, PTR, SRV, or AUTO for address summary). Resolves via system DNS (no shell). Loopback/link-local and unqualified internal names (localhost, *.local, *.internal, single-label) are refused unless HERD_ALLOW_INTERNAL_DNS=1.",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -23,6 +24,14 @@ func buildDNSLookupTool() ToolDefinition {
 				"record_type": map[string]any{
 					"type":        "string",
 					"description": "Record type: A, AAAA, MX, TXT, NS, CNAME, PTR, SRV, or AUTO (default AUTO — resolved IP addresses)",
+				},
+				"service": map[string]any{
+					"type":        "string",
+					"description": "SRV service label without underscores (e.g. 'http' for _http._tcp.<name>). SRV only.",
+				},
+				"proto": map[string]any{
+					"type":        "string",
+					"description": "SRV protocol label without underscores, usually 'tcp' or 'udp'. SRV only.",
 				},
 			},
 			"required": []string{"name"},
@@ -45,6 +54,21 @@ func buildDNSLookupTool() ToolDefinition {
 				recordType = strings.ToUpper(strings.TrimSpace(rt))
 			}
 
+			srvService, _ := args["service"].(string)
+			srvProto, _ := args["proto"].(string)
+			srvService = strings.Trim(strings.TrimSpace(srvService), "_")
+			srvProto = strings.Trim(strings.TrimSpace(srvProto), "_")
+			if recordType == "SRV" {
+				if (srvService == "") != (srvProto == "") {
+					return nil, fmt.Errorf("SRV requires both 'service' and 'proto' (e.g. service http proto tcp)")
+				}
+				if srvService == "" {
+					return nil, fmt.Errorf("SRV requires 'service' and 'proto' (e.g. service http proto tcp for _http._tcp.%s)", name)
+				}
+			} else if srvService != "" || srvProto != "" {
+				return nil, fmt.Errorf("'service'/'proto' apply to SRV lookups only")
+			}
+
 			resolver := &net.Resolver{
 				PreferGo: true,
 				Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
@@ -53,19 +77,62 @@ func buildDNSLookupTool() ToolDefinition {
 				},
 			}
 
-			return executeDNSLookup(ctx, resolver, name, recordType)
+			return executeDNSLookup(ctx, resolver, name, recordType, srvService, srvProto)
 		},
 	}
 }
 
+// internalNameBlocked reports whether name targets loopback/link-local
+// infrastructure or unqualified internal names. The model is
+// attacker-influenced, so dns_lookup refuses these unless
+// HERD_ALLOW_INTERNAL_DNS=1 (see docs/security-deep-dive.md).
+func internalNameBlocked(name string) bool {
+	if os.Getenv("HERD_ALLOW_INTERNAL_DNS") != "" {
+		return false
+	}
+	lower := strings.ToLower(strings.TrimSuffix(name, "."))
+	if lower == "localhost" || strings.HasSuffix(lower, ".localhost") ||
+		lower == "local" || strings.HasSuffix(lower, ".local") ||
+		strings.HasSuffix(lower, ".internal") || strings.HasSuffix(lower, ".lan") ||
+		strings.HasSuffix(lower, ".home.arpa") || !strings.Contains(lower, ".") {
+		return true
+	}
+	if ip := net.ParseIP(lower); ip != nil {
+		return ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
+			ip.IsMulticast() || ip.IsUnspecified()
+	}
+	return false
+}
+
 func validateDNSLookupName(name string) error {
+	// net.Resolver never invokes a shell, so this is defense-in-depth plus
+	// an SSRF boundary for model-chosen names (see internalNameBlocked).
 	if strings.ContainsAny(name, " \t\r\n/\\") {
 		return fmt.Errorf("invalid name: contains disallowed characters")
+	}
+	for _, r := range name {
+		if r < 0x20 || r == 0x7f {
+			return fmt.Errorf("invalid name: contains control characters")
+		}
+	}
+	if strings.ContainsAny(name, ";$&|`'\"!") {
+		return fmt.Errorf("invalid name: contains shell metacharacters")
+	}
+	for _, label := range strings.Split(name, ".") {
+		if label == "" {
+			return fmt.Errorf("invalid name: empty DNS label")
+		}
+		if len(label) > 63 {
+			return fmt.Errorf("invalid name: DNS label too long")
+		}
+	}
+	if internalNameBlocked(name) {
+		return fmt.Errorf("refusing internal name %q (set HERD_ALLOW_INTERNAL_DNS=1 to override)", name)
 	}
 	return nil
 }
 
-func executeDNSLookup(ctx context.Context, r *net.Resolver, name, recordType string) (map[string]any, error) {
+func executeDNSLookup(ctx context.Context, r *net.Resolver, name, recordType, srvService, srvProto string) (map[string]any, error) {
 	out := map[string]any{
 		"name":         name,
 		"record_type":  recordType,
@@ -96,8 +163,8 @@ func executeDNSLookup(ctx context.Context, r *net.Resolver, name, recordType str
 				"value": ipa.IP.String(),
 			})
 		}
-		if len(records) == 0 && recordType != "AUTO" {
-			return nil, fmt.Errorf("no %s records found for %q", recordType, name)
+		if len(records) == 0 {
+			return nil, fmt.Errorf("no address records found for %q", name)
 		}
 		out["records"] = records
 		out["record_count"] = len(records)
@@ -152,6 +219,11 @@ func executeDNSLookup(ctx context.Context, r *net.Resolver, name, recordType str
 			return nil, fmt.Errorf("dns lookup failed: %w", err)
 		}
 		cname = strings.TrimSuffix(cname, ".")
+		// LookupCNAME never fails: it returns the input when no alias
+		// exists. Report that honestly instead of a phantom record.
+		if strings.EqualFold(cname, strings.TrimSuffix(name, ".")) {
+			return nil, fmt.Errorf("no CNAME record found for %q", name)
+		}
 		out["records"] = []any{map[string]any{"type": "CNAME", "value": cname}}
 		out["record_count"] = 1
 		return out, nil
@@ -170,9 +242,12 @@ func executeDNSLookup(ctx context.Context, r *net.Resolver, name, recordType str
 		return out, nil
 
 	case "SRV":
-		_, addrs, err := r.LookupSRV(ctx, "", "", name)
+		_, addrs, err := r.LookupSRV(ctx, srvService, srvProto, name)
 		if err != nil {
 			return nil, fmt.Errorf("dns lookup failed: %w", err)
+		}
+		if len(addrs) == 0 {
+			return nil, fmt.Errorf("no SRV records found for _%s._%s.%s", srvService, srvProto, name)
 		}
 		var records []any
 		for _, srv := range addrs {

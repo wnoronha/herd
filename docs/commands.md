@@ -27,12 +27,12 @@ Most commands share daemon connection flags (`--node-name`, `--socket`) as **per
 
 | Setting | Flag | Environment Variable | Default |
 |---|---|---|---|
-| Node Name | `-node-name <string>` | `HERD_NODE_NAME` | System hostname |
-| Socket Path | `-socket <path>` | `HERD_SOCKET_PATH` | `$XDG_RUNTIME_DIR/herd-<node>.sock` |
+| Node Name | `--node-name <string>` | `HERD_NODE_NAME` | System hostname |
+| Socket Path | `--socket <path>` | `HERD_SOCKET_PATH` | `$XDG_RUNTIME_DIR/herd-<node>.sock` |
 | Log Level | *(daemon only)* | `HERD_LOG_LEVEL` | `info` (`debug`, `warn`, `error`) |
 | Log Format | *(daemon only)* | `HERD_LOG_FORMAT` | `console` (`json`) |
 
-The flags -bind-addr, -bind-port, -join, -data-dir, -config-dir, and -state-dir are specific to `herd daemon` and are documented in the Daemon section.
+The flags --bind-addr, --bind-port, --join, --data-dir, --config-dir, and --state-dir are specific to `herd daemon` and are documented in the Daemon section.
 
 ---
 
@@ -46,10 +46,10 @@ Starts the background mesh node, handling gossip, peer discovery, and IPC.
 herd daemon
 
 # Start with custom name and join an existing Tailcat address
-HERD_NODE_NAME=node-2 herd daemon -join tcpGFw...<node-1-tailcat-addr>...
+HERD_NODE_NAME=node-2 herd daemon --join tcpGFw...<node-1-tailcat-addr>...
 
 # Start with auto-selected port and custom data directory
-herd daemon -node-name worker-1 -bind-port 0 -data-dir /var/lib/herd
+herd daemon --node-name worker-1 --bind-port 0 --data-dir /var/lib/herd
 ```
 
 ---
@@ -126,6 +126,8 @@ Sets up a local TCP proxy tunnel forwarded securely to a target node's port.
 # Forward local port 8080 to port 80 on node-2
 herd forward 8080 node-2:80
 ```
+
+Target uses `<node>:<port>`; bracket IPv6 literals (`herd forward 8080 '[::1]:80'`). Ports must be 1-65535.
 
 ### `herd cp <source> <destination>`
 Copies files directly across nodes over encrypted multiplexed streams.

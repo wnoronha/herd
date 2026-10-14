@@ -3,7 +3,7 @@ package agent
 // AgentStatusReport is the structured agent backend / persona status for one node.
 type AgentStatusReport struct {
 	NodeName             string          `json:"node_name"`
-	BackendClass         string          `json:"backend_class"`   // llm | auto | ollama | fallback
+	BackendClass         string          `json:"backend_class"`    // llm | auto | ollama | fallback
 	BackendProvider      string          `json:"backend_provider"` // gemini | openai | ollama | fallback
 	Model                string          `json:"model"`
 	FallbackModel        string          `json:"fallback_model,omitempty"`
@@ -29,12 +29,12 @@ type PersonaStatus struct {
 
 // RoleStatus details one persona role and tool gaps vs the full registry.
 type RoleStatus struct {
-	Role               string   `json:"role"`
-	AllowedTools       []string `json:"allowed_tools,omitempty"`
-	MissingFromRole    []string `json:"missing_from_role,omitempty"`
-	UsesFullToolset    bool     `json:"uses_full_toolset"`
-	EffectiveBackend   string   `json:"effective_backend"`
-	EffectiveModel     string   `json:"effective_model"`
+	Role             string   `json:"role"`
+	AllowedTools     []string `json:"allowed_tools,omitempty"`
+	MissingFromRole  []string `json:"missing_from_role,omitempty"`
+	UsesFullToolset  bool     `json:"uses_full_toolset"`
+	EffectiveBackend string   `json:"effective_backend"`
+	EffectiveModel   string   `json:"effective_model"`
 }
 
 // ProbeStatus holds optional live API reachability checks.
