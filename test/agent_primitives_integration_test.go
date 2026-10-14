@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -66,6 +67,137 @@ func TestAgentPrimitivesEndToEnd(t *testing.T) {
 	t.Run("AutonomousToolLoop", func(t *testing.T) {
 		verifyAutonomousToolLoop(t, ctx, nodeAlpha, tmpDir)
 	})
+
+	t.Run("DNSLookup", func(t *testing.T) {
+		verifyDNSLookupPrimitives(t, ctx, toolMap)
+	})
+
+	t.Run("DNSLookupAutonomousLoop", func(t *testing.T) {
+		verifyDNSLookupAutonomousLoop(t, ctx, nodeAlpha)
+	})
+}
+
+func verifyDNSLookupPrimitives(t *testing.T, ctx context.Context, toolMap map[string]agent.ToolDefinition) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("skipping DNS integration in -short mode")
+	}
+
+	dnsTool, ok := toolMap["dns_lookup"]
+	if !ok {
+		t.Fatal("dns_lookup not registered in BuildDefaultTools on live daemon")
+	}
+
+	res, err := dnsTool.Handler(ctx, map[string]any{
+		"name":        "example.com",
+		"record_type": "A",
+	})
+	if err != nil {
+		t.Skipf("live DNS unavailable: %v", err)
+	}
+	m := res.(map[string]any)
+	if m["record_count"].(int) < 1 {
+		t.Fatalf("expected A records for example.com, got: %v", m)
+	}
+}
+
+func verifyDNSLookupAutonomousLoop(t *testing.T, ctx context.Context, nodeAlpha *clusterNode) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("skipping DNS autonomous loop in -short mode")
+	}
+
+	var callCount atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		turn := callCount.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		if turn == 1 {
+			resp := agent.OpenAIChatResponse{
+				Choices: []struct {
+					Message struct {
+						Role      string                 `json:"role"`
+						Content   string                 `json:"content"`
+						ToolCalls []agent.OpenAIToolCall `json:"tool_calls,omitempty"`
+					} `json:"message"`
+					FinishReason string `json:"finish_reason"`
+				}{
+					{
+						Message: struct {
+							Role      string                 `json:"role"`
+							Content   string                 `json:"content"`
+							ToolCalls []agent.OpenAIToolCall `json:"tool_calls,omitempty"`
+						}{
+							Role: "assistant",
+							ToolCalls: []agent.OpenAIToolCall{
+								{
+									ID:   "call_dns",
+									Type: "function",
+									Function: agent.OpenAIFunctionCall{
+										Name:      "dns_lookup",
+										Arguments: `{"name":"example.com","record_type":"A"}`,
+									},
+								},
+							},
+						},
+						FinishReason: "tool_calls",
+					},
+				},
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+		resp := agent.OpenAIChatResponse{
+			Choices: []struct {
+				Message struct {
+					Role      string                 `json:"role"`
+					Content   string                 `json:"content"`
+					ToolCalls []agent.OpenAIToolCall `json:"tool_calls,omitempty"`
+				} `json:"message"`
+				FinishReason string `json:"finish_reason"`
+			}{
+				{
+					Message: struct {
+						Role      string                 `json:"role"`
+						Content   string                 `json:"content"`
+						ToolCalls []agent.OpenAIToolCall `json:"tool_calls,omitempty"`
+					}{
+						Role:    "assistant",
+						Content: "Resolved example.com A records via dns_lookup.",
+					},
+					FinishReason: "stop",
+				},
+			},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer ts.Close()
+
+	engine := agent.NewEngine(agent.Config{
+		NodeName:      "node-alpha",
+		OpenAIBaseURL: ts.URL,
+		OpenAIAPIKey:  "mock-test-key",
+		OpenAIModel:   "gpt-4o-mini",
+		Provider:      "openai",
+	}, nodeAlpha.Daemon)
+
+	resp, err := engine.ExecutePrompt(ctx, &agent.PromptRequest{
+		Prompt: "Look up A records for example.com",
+	})
+	if err != nil {
+		t.Fatalf("ExecutePrompt failed: %v", err)
+	}
+	if len(resp.ToolsCalled) != 1 {
+		t.Fatalf("expected 1 tool call, got %d", len(resp.ToolsCalled))
+	}
+	if resp.ToolsCalled[0].Name != "dns_lookup" {
+		t.Fatalf("expected dns_lookup, got %s", resp.ToolsCalled[0].Name)
+	}
+	if strings.Contains(resp.ToolsCalled[0].Result, `"error"`) {
+		t.Skipf("dns_lookup failed in autonomous loop (network?): %s", resp.ToolsCalled[0].Result)
+	}
+	if !strings.Contains(resp.ToolsCalled[0].Result, "example.com") || !strings.Contains(resp.ToolsCalled[0].Result, `"type":"A"`) {
+		t.Fatalf("unexpected dns_lookup result: %s", resp.ToolsCalled[0].Result)
+	}
 }
 
 func verifyFilePrimitives(t *testing.T, ctx context.Context, toolMap map[string]agent.ToolDefinition, tmpDir string) {

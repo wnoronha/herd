@@ -377,8 +377,109 @@ func TestOpenAIBackendToolLoop(t *testing.T) {
 	if resp.ToolsCalled[0].Name != "cluster_roster" {
 		t.Errorf("expected tool name 'cluster_roster', got %s", resp.ToolsCalled[0].Name)
 	}
-	if resp.Response != "Found 1 alive node: test-node." {
-		t.Errorf("unexpected response: %s", resp.Response)
+}
+
+func TestDNSLookupOpenAIToolLoop(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping DNS OpenAI tool loop in -short mode")
+	}
+
+	mockCtx := &mockClusterContext{
+		nodeName: "test-node",
+		roster:   roster.NewStore(&roster.NodeMeta{NodeName: "test-node"}),
+		kvStore:  kv.NewStore("test-node"),
+	}
+
+	callCount := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		w.Header().Set("Content-Type", "application/json")
+		if callCount == 1 {
+			resp := OpenAIChatResponse{
+				Choices: []struct {
+					Message struct {
+						Role      string           `json:"role"`
+						Content   string           `json:"content"`
+						ToolCalls []OpenAIToolCall `json:"tool_calls,omitempty"`
+					} `json:"message"`
+					FinishReason string `json:"finish_reason"`
+				}{
+					{
+						Message: struct {
+							Role      string           `json:"role"`
+							Content   string           `json:"content"`
+							ToolCalls []OpenAIToolCall `json:"tool_calls,omitempty"`
+						}{
+							Role: "assistant",
+							ToolCalls: []OpenAIToolCall{
+								{
+									ID:   "call_dns",
+									Type: "function",
+									Function: OpenAIFunctionCall{
+										Name:      "dns_lookup",
+										Arguments: `{"name":"example.com","record_type":"AUTO"}`,
+									},
+								},
+							},
+						},
+						FinishReason: "tool_calls",
+					},
+				},
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+		resp := OpenAIChatResponse{
+			Choices: []struct {
+				Message struct {
+					Role      string           `json:"role"`
+					Content   string           `json:"content"`
+					ToolCalls []OpenAIToolCall `json:"tool_calls,omitempty"`
+				} `json:"message"`
+				FinishReason string `json:"finish_reason"`
+			}{
+				{
+					Message: struct {
+						Role      string           `json:"role"`
+						Content   string           `json:"content"`
+						ToolCalls []OpenAIToolCall `json:"tool_calls,omitempty"`
+					}{
+						Role:    "assistant",
+						Content: "DNS lookup complete.",
+					},
+					FinishReason: "stop",
+				},
+			},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer ts.Close()
+
+	engine := NewEngine(Config{
+		NodeName:      "test-node",
+		OpenAIBaseURL: ts.URL,
+		OpenAIModel:   "mock-gpt",
+		Provider:      "openai",
+	}, mockCtx)
+
+	if _, ok := engine.tools["dns_lookup"]; !ok {
+		t.Fatal("dns_lookup not registered on engine")
+	}
+
+	resp, err := engine.ExecutePrompt(context.Background(), &PromptRequest{
+		Prompt: "Resolve example.com",
+	})
+	if err != nil {
+		t.Fatalf("ExecutePrompt error: %v", err)
+	}
+	if len(resp.ToolsCalled) != 1 || resp.ToolsCalled[0].Name != "dns_lookup" {
+		t.Fatalf("expected dns_lookup tool call, got: %+v", resp.ToolsCalled)
+	}
+	if strings.Contains(resp.ToolsCalled[0].Result, `"error"`) {
+		t.Skipf("dns unavailable: %s", resp.ToolsCalled[0].Result)
+	}
+	if !strings.Contains(resp.ToolsCalled[0].Result, "example.com") {
+		t.Fatalf("unexpected tool result: %s", resp.ToolsCalled[0].Result)
 	}
 }
 

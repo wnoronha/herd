@@ -7,6 +7,15 @@ import (
 	"testing"
 )
 
+func TestBuildDefaultToolsIncludesDNSLookup(t *testing.T) {
+	for _, tool := range BuildDefaultTools(nil) {
+		if tool.Name == "dns_lookup" {
+			return
+		}
+	}
+	t.Fatal("dns_lookup missing from BuildDefaultTools")
+}
+
 func TestDNSLookupToolDefinition(t *testing.T) {
 	tool := buildDNSLookupTool()
 	if tool.Name != "dns_lookup" {
