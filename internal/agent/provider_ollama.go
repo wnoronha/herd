@@ -39,14 +39,17 @@ func (e *Engine) executeWithOllama(ctx context.Context, req *PromptRequest, cfg 
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(httpReq)
+	// Bounded client: never hang ExecutePrompt on a wedged Ollama server.
+	// The request ctx still governs cancellation; this is a backstop.
+	client := &http.Client{Timeout: 90 * time.Second}
+	resp, err := client.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to reach Ollama at %s: %w", url, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		errBody, _ := io.ReadAll(resp.Body)
+		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
 		return nil, fmt.Errorf("ollama returned HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(errBody)))
 	}
 

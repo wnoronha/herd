@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -94,6 +95,12 @@ func (e *Engine) executeWithOpenAI(ctx context.Context, req *PromptRequest, cfg 
 			return nil, fmt.Errorf("failed to reach OpenAI endpoint at %s: %w", endpoint, err)
 		}
 
+		if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
+			errBody, _ := io.ReadAll(io.LimitReader(httpResp.Body, 4<<10))
+			_ = httpResp.Body.Close()
+			return nil, fmt.Errorf("OpenAI endpoint %s returned HTTP %d: %s", endpoint, httpResp.StatusCode, strings.TrimSpace(string(errBody)))
+		}
+
 		var chatResp OpenAIChatResponse
 		decodeErr := json.NewDecoder(httpResp.Body).Decode(&chatResp)
 		_ = httpResp.Body.Close()
@@ -114,7 +121,7 @@ func (e *Engine) executeWithOpenAI(ctx context.Context, req *PromptRequest, cfg 
 		assistantMsg := choice.Message
 
 		if assistantMsg.Content != "" {
-			finalResponse = assistantMsg.Content
+			finalResponse += assistantMsg.Content
 		}
 
 		// If no tool calls, reasoning loop finished

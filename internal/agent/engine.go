@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -83,9 +82,14 @@ func (e *Engine) ListAgents() []*AgentDefinition {
 }
 
 // getEffectiveTools filters available tools by AllowedTools if specified.
+// It always returns a copy so callers can neither race nor mutate engine state.
 func (e *Engine) getEffectiveTools(allowed []string) map[string]ToolDefinition {
 	if len(allowed) == 0 {
-		return e.tools
+		out := make(map[string]ToolDefinition, len(e.tools))
+		for name, def := range e.tools {
+			out[name] = def
+		}
+		return out
 	}
 	allowedMap := make(map[string]bool, len(allowed))
 	for _, a := range allowed {
@@ -224,29 +228,33 @@ func (e *Engine) ExecutePrompt(ctx context.Context, req *PromptRequest) (*Prompt
 	}
 
 	var resp *PromptResponse
+	var ollamaHint string
 
 	// 1. Explicit Gemini Provider or Gemini API key
 	if effCfg.Provider == "gemini" || (effCfg.APIKey != "" && effCfg.Provider != "openai") {
 		resp, err = e.executeWithGemini(ctx, req, effCfg, allowedTools, start)
-	} else if effCfg.OpenAIAPIKey != "" || os.Getenv("OPENAI_BASE_URL") != "" || effCfg.Provider == "openai" {
+	} else if openAIPathExplicit(effCfg) {
 		resp, err = e.executeWithOpenAI(ctx, req, effCfg, allowedTools, start)
 		if err != nil {
 			if effCfg.Provider == "openai" || effCfg.OpenAIAPIKey != "" {
 				// Explicit selection failed — propagate as hard error.
 				return nil, err
 			}
-			// Opportunistic attempt (env-based) failed — clear and fall through to next backend.
+			// Opportunistic attempt (env-based) failed — surface the real
+			// cause in the fallback hint instead of a confusing Ollama hint.
+			ollamaHint = "OpenAI attempt failed (" + err.Error() + ");"
 			err = nil
 		}
 	}
 
-	var ollamaHint string
 	if resp == nil && err == nil {
 		// 3. Auto-probe local Ollama (OpenAI-compatible /v1 with tools, then native /api/chat)
-		resp, ollamaHint, err = e.tryAutoOllamaBackends(ctx, req, effCfg, allowedTools, start)
+		var autoHint string
+		resp, autoHint, err = e.tryAutoOllamaBackends(ctx, req, effCfg, allowedTools, start)
 		if err != nil {
 			return nil, err
 		}
+		ollamaHint += autoHint
 	}
 
 	if resp == nil && err == nil {
