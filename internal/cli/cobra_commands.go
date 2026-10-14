@@ -66,6 +66,7 @@ func newLeaveCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "leave",
 		Short: "Gracefully leave the cluster mesh",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return leaveAction()
 		},
@@ -78,7 +79,12 @@ func newExecCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "exec <target> <command> [args...]",
 		Short: "Execute a remote command across mesh nodes",
-		Args:  cobra.MinimumNArgs(2),
+		Long: `Execute a remote command across mesh nodes.
+
+Local flags (--json, --timeout) are parsed anywhere on the command line.
+Use "--" to pass dash-prefixed args to the remote command, e.g.
+  herd exec node1 echo hi -- --json`,
+		Args: cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return execAction(args[0], args[1], args[2:], jsonOutput, timeoutSec)
 		},
@@ -96,8 +102,8 @@ func newForwardCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			localPort, err := strconv.Atoi(args[0])
-			if err != nil || localPort <= 0 {
-				return fmt.Errorf("invalid local port: %s", args[0])
+			if err != nil || localPort < 1 || localPort > 65535 {
+				return fmt.Errorf("invalid local port %q: must be 1-65535", args[0])
 			}
 			return forwardAction(localPort, args[1], bindHost)
 		},
@@ -181,9 +187,10 @@ func newKVListCmd() *cobra.Command {
 	var prefix string
 	var jsonOutput bool
 	cmd := &cobra.Command{
-		Use:     "list",
+		Use:   "list",
 		Aliases: []string{"ls"},
-		Short:   "List keys by prefix",
+		Short: "List keys by prefix",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return kvListAction(prefix, jsonOutput)
 		},
@@ -210,6 +217,7 @@ func newAgentStatusCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show agent LLM backend, config sources, and persona tool scope",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return agentStatusAction(role, probe, cluster, jsonOutput)
 		},
@@ -229,6 +237,7 @@ func newAgentInitCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Scaffold starter AGENTS.md with default personas",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return agentInitAction(dir, forNode, force, global)
 		},
@@ -245,7 +254,12 @@ func newAgentPromptCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "prompt [task...]",
 		Short: "Send a natural language task to the agent",
-		Args:  cobra.MinimumNArgs(1),
+		Long: `Send a natural language task to the agent.
+
+Local flags (--target, --model, --role) are parsed anywhere on the
+command line. Use "--" to include dash-prefixed words in the task, e.g.
+  herd agent prompt -- echo --json`,
+		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return agentPromptAction(strings.Join(args, " "), targetNode, model, role)
 		},
@@ -261,6 +275,7 @@ func newAgentChatCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "chat",
 		Short: "Start an interactive agent conversation",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return agentChatAction(targetNode, model, role)
 		},
@@ -275,6 +290,7 @@ func newAgentToolsCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "tools",
 		Short: "List registered cluster tools",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return agentToolsAction()
 		},
@@ -298,7 +314,12 @@ func newMailSendCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "send <to> <message...>",
 		Short: "Send a message to a node mailbox",
-		Args:  cobra.MinimumNArgs(2),
+		Long: `Send a message to a node mailbox.
+
+Local flags are parsed anywhere on the command line. Use "--" to
+include dash-prefixed words in the message, e.g.
+  herd mail send node1 -- --urgent hello`,
+		Args: cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			to := args[0]
 			msg := strings.Join(args[1:], " ")
@@ -321,6 +342,7 @@ func newMailListCmd() *cobra.Command {
 		Use:     "list",
 		Aliases: []string{"ls"},
 		Short:   "List mailbox messages",
+		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return mailListAction(target, topic, jsonOutput)
 		},
@@ -338,6 +360,7 @@ func newMailReadCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "read",
 		Short: "Read mailbox messages",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return mailReadAction(target, topic, ack, jsonOutput)
 		},
@@ -357,6 +380,7 @@ func newMailWatchCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "watch",
 		Short: "Stream new mailbox messages",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return mailWatchAction(target, topic, ack, interval, jsonOutput)
 		},
@@ -375,6 +399,7 @@ func newDocsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "docs [topic]",
 		Short: "View embedded documentation guides",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			topic := ""
 			if len(args) > 0 {

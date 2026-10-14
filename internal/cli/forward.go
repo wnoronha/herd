@@ -7,22 +7,21 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
-	"strings"
 	"syscall"
 
 	"github.com/wnoronha/herd/internal/subsys"
 )
 
 func forwardAction(localPort int, targetExpr, bindHost string) error {
-	parts := strings.Split(targetExpr, ":")
-	if len(parts) != 2 {
+	// SplitHostPort handles IPv6 literals ([::1]:80) as well as host:port.
+	targetNode, portStr, err := net.SplitHostPort(targetExpr)
+	if err != nil || targetNode == "" {
 		return fmt.Errorf("target must be in format <target-node>:<target-port>, got %s", targetExpr)
 	}
 
-	targetNode := parts[0]
-	targetPort, err := strconv.Atoi(parts[1])
-	if err != nil || targetPort <= 0 {
-		return fmt.Errorf("invalid target port: %s", parts[1])
+	targetPort, err := strconv.Atoi(portStr)
+	if err != nil || targetPort < 1 || targetPort > 65535 {
+		return fmt.Errorf("invalid target port %q: must be 1-65535", portStr)
 	}
 
 	client, _, err := daemonClient()

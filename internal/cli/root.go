@@ -85,9 +85,11 @@ func resetCLIFlags(cmd *cobra.Command) {
 	rootSocket = ""
 	cmd.Flags().VisitAll(func(f *pflag.Flag) {
 		_ = f.Value.Set(f.DefValue)
+		f.Changed = false
 	})
 	cmd.PersistentFlags().VisitAll(func(f *pflag.Flag) {
 		_ = f.Value.Set(f.DefValue)
+		f.Changed = false
 	})
 	for _, sub := range cmd.Commands() {
 		resetCLIFlags(sub)

@@ -10,6 +10,9 @@ import (
 )
 
 func docsAction(topic string, exportDir string, all bool) error {
+	if exportDir != "" && all {
+		return fmt.Errorf("flags --export and --all are mutually exclusive")
+	}
 	if exportDir != "" {
 		return exportDocs(exportDir)
 	}

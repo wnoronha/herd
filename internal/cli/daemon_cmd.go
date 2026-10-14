@@ -20,26 +20,21 @@ func init() {
 
 func newDaemonCmd() *cobra.Command {
 	var (
-		nodeName  string
 		bindAddr  string
 		bindPort  int
 		joinAddr  string
 		configDir string
 		dataDir   string
 		stateDir  string
-		socketPath string
 	)
 
 	cmd := &cobra.Command{
 		Use:   "daemon",
 		Short: "Start the Herd background mesh node daemon",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if nodeName == "" {
-				nodeName = rootNodeName
-			}
-			if socketPath == "" {
-				socketPath = rootSocket
-			}
+			nodeName := rootNodeName
+			socketPath := rootSocket
 
 			cfg, err := config.Load(config.Options{
 				NodeName:   nodeName,
@@ -91,14 +86,14 @@ func newDaemonCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&nodeName, "node-name", "", "Cluster node name (default: hostname)")
+	// Node identity and socket come from the root persistent flags so
+	// `herd --node-name X daemon` and `herd daemon --node-name X` agree.
 	cmd.Flags().StringVar(&bindAddr, "bind-addr", "0.0.0.0", "Bind IP address for gossip and tunnel transport")
 	cmd.Flags().IntVar(&bindPort, "bind-port", -1, "Bind port for gossip and tunnel transport (default 7946, 0 for dynamic)")
 	cmd.Flags().StringVar(&joinAddr, "join", "", "Seed peer address to join on startup (e.g. 10.0.0.1:7946)")
 	cmd.Flags().StringVar(&configDir, "config-dir", "", "Custom configuration directory")
 	cmd.Flags().StringVar(&dataDir, "data-dir", "", "Custom data storage directory")
 	cmd.Flags().StringVar(&stateDir, "state-dir", "", "Custom state directory")
-	cmd.Flags().StringVar(&socketPath, "socket", "", "Custom Unix domain socket path")
 
 	return cmd
 }

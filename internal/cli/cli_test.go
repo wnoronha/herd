@@ -52,6 +52,9 @@ func TestStatusAndRosterCLI(t *testing.T) {
 	if err := ExecuteArgs(append([]string{"leave"}, sock...)); err != nil {
 		t.Errorf("leave error: %v", err)
 	}
+	if err := ExecuteArgs(append([]string{"leave", "extra-arg"}, sock...)); err == nil {
+		t.Errorf("expected error for 'leave extra-arg' (NoArgs)")
+	}
 
 	offlineSock := filepath.Join(tmpDir, "nonexistent.sock")
 	if err := ExecuteArgs([]string{"status", "--socket", offlineSock}); err == nil {
@@ -74,6 +77,9 @@ func TestStatusAndRosterCLI(t *testing.T) {
 
 	if err := ExecuteArgs(append([]string{"forward"}, sock...)); err == nil {
 		t.Errorf("expected error when forward arguments are missing")
+	}
+	if err := ExecuteArgs(append([]string{"forward", "99999", "node:80"}, sock...)); err == nil {
+		t.Errorf("expected error for out-of-range forward port")
 	}
 
 	src := filepath.Join(tmpDir, "cli_src.txt")
@@ -146,6 +152,12 @@ func TestDocsCLI(t *testing.T) {
 
 	if err := ExecuteArgs([]string{"docs", "zzzz-not-a-real-topic-999"}); err == nil {
 		t.Errorf("expected error for non-existent topic")
+	}
+	if err := ExecuteArgs([]string{"docs", "--export", tmpDir, "--all"}); err == nil {
+		t.Errorf("expected error for mutually exclusive --export/--all")
+	}
+	if err := ExecuteArgs([]string{"docs", "architecture", "extra"}); err == nil {
+		t.Errorf("expected error for extra docs topic arg")
 	}
 }
 
