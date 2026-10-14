@@ -119,28 +119,31 @@ func parsePeer(entry *zeroconf.ServiceEntry) (DiscoveredPeer, bool) {
 	if id == "" {
 		return DiscoveredPeer{}, false
 	}
-	// A pinned addr (operator override or LAN detection) wins over
-	// mDNS-resolved IPs, which may include docker/VPN interfaces.
+	var addrs []string
+	seen := make(map[string]bool)
+	// A pinned addr (operator override or LAN detection) is tried first;
+	// resolved IPs follow as fallback for stale/partial configurations.
 	if pinned := txt[txtAddr]; pinned != "" {
 		if ip := net.ParseIP(pinned); ip != nil && usableIP(ip) {
-			return DiscoveredPeer{
-				NodeName:    peerName(entry, txt),
-				IdentityKey: id,
-				Addrs:       []string{net.JoinHostPort(ip.String(), strconv.Itoa(entry.Port))},
-				Version:     txt[txtVersion],
-				MeshFP:      txt[txtMeshFP],
-			}, true
+			a := net.JoinHostPort(ip.String(), strconv.Itoa(entry.Port))
+			addrs = append(addrs, a)
+			seen[a] = true
 		}
 	}
-	var addrs []string
 	for _, ip := range entry.AddrIPv4 {
 		if usableIP(ip) {
-			addrs = append(addrs, net.JoinHostPort(ip.String(), strconv.Itoa(entry.Port)))
+			if a := net.JoinHostPort(ip.String(), strconv.Itoa(entry.Port)); !seen[a] {
+				addrs = append(addrs, a)
+				seen[a] = true
+			}
 		}
 	}
 	for _, ip := range entry.AddrIPv6 {
 		if usableIP(ip) && ip.IsGlobalUnicast() {
-			addrs = append(addrs, net.JoinHostPort(ip.String(), strconv.Itoa(entry.Port)))
+			if a := net.JoinHostPort(ip.String(), strconv.Itoa(entry.Port)); !seen[a] {
+				addrs = append(addrs, a)
+				seen[a] = true
+			}
 		}
 	}
 	if len(addrs) == 0 {

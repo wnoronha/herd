@@ -100,9 +100,9 @@ func TestParsePeerPinnedAddr(t *testing.T) {
 	if !ok {
 		t.Fatal("expected parseable peer")
 	}
-	want := []string{"10.9.9.9:7946"}
+	want := []string{"10.9.9.9:7946", "192.168.1.99:7946"}
 	if !reflect.DeepEqual(peer.Addrs, want) {
-		t.Fatalf("pinned addr must win, got %v", peer.Addrs)
+		t.Fatalf("pinned addr must come first, got %v", peer.Addrs)
 	}
 }
 

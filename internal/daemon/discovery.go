@@ -91,7 +91,10 @@ func (d *Daemon) discoveryEmit(peer discover.DiscoveredPeer) {
 func (d *Daemon) warnOnNameClash(peer discover.DiscoveredPeer) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if d.warnedClashes == nil || d.warnedClashes[peer.IdentityKey] {
+	if d.warnedClashes == nil {
+		d.warnedClashes = make(map[string]bool)
+	}
+	if d.warnedClashes[peer.IdentityKey] {
 		return
 	}
 	if d.Store == nil {
