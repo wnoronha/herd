@@ -21,14 +21,14 @@ func TestBuildStatusFallbackWithoutKeys(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildStatus: %v", err)
 	}
-	if report.BackendClass != "fallback" {
-		t.Fatalf("expected fallback backend, got %s", report.BackendClass)
+	if report.BackendClass != "auto" {
+		t.Fatalf("expected auto ollama probe backend, got %s", report.BackendClass)
 	}
 	if report.ConfiguredLLM {
 		t.Fatal("expected configured_llm false without keys")
 	}
-	if len(report.FixHints) == 0 {
-		t.Fatal("expected fix hints for fallback")
+	if report.Reason == "" {
+		t.Fatal("expected reason describing auto ollama probe")
 	}
 }
 

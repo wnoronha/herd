@@ -371,13 +371,14 @@ sub_agents:
 
 ## 5. Supported Model Providers
 
-The agent engine defaults to the standard **OpenAI `/v1` endpoint** supported by OpenAI, Ollama, vLLM, Groq, LiteLLM, and local inference servers, with fallback to Google Gemini and zero-key offline heuristics:
+The agent engine picks backends in order: **Gemini** (when configured), **OpenAI-compatible** (when `OPENAI_API_KEY`, `OPENAI_BASE_URL`, or `provider=openai`), then **automatic local Ollama** when no cloud keys are set (probes `http://localhost:11434/v1` with tools, then native `/api/chat`), and finally the **deterministic fallback** if Ollama is unreachable. Set `provider=ollama` to require Ollama (errors if down). Override defaults with env or `agent:config:*` KV.
 
 | Provider | Environment Variables | Default Endpoint / Model | Best Used For |
 |---|---|---|---|
-| **OpenAI-Compatible (Default)** | `OPENAI_BASE_URL`<br>`OPENAI_API_KEY`<br>`OPENAI_MODEL` | `http://localhost:11434/v1`<br>`gpt-4o-mini` / `llama3.2` | Universal support across OpenAI, Local Ollama, vLLM, Groq, DeepSeek |
+| **OpenAI-Compatible** | `OPENAI_BASE_URL`<br>`OPENAI_API_KEY`<br>`OPENAI_MODEL` | User-defined or `http://localhost:11434/v1`<br>`gpt-4o-mini` / `llama3.2` | OpenAI, Ollama, vLLM, Groq, DeepSeek when explicitly configured |
+| **Auto Ollama (zero-key)** | *(optional)* `OLLAMA_MODEL` | `http://localhost:11434/v1` → `llama3.2` | Local Ollama with no KV/env beyond `ollama serve` |
 | **Google Gemini API** | `GEMINI_API_KEY` | `gemini-3.8-flash` | Cloud reasoning with Gemini Go SDK |
-| **Deterministic Fallback** | *(None required)* | Offline rule-based router | Air-gapped, zero-key local mesh discovery |
+| **Deterministic Fallback** | *(None required)* | Offline rule-based router | Air-gapped mesh when no LLM is reachable |
 
 Vertex AI is not currently supported. Use the Gemini API directly via GEMINI_API_KEY.
 

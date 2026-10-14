@@ -236,13 +236,16 @@ func (e *Engine) ExecutePrompt(ctx context.Context, req *PromptRequest) (*Prompt
 	}
 
 	if resp == nil && err == nil {
-		// 3. Ollama direct chat if specified
-		if effCfg.Provider == "ollama" {
-			resp, err = e.executeWithOllama(ctx, req, effCfg, start)
-		} else {
-			// 4. Fallback: Heuristic Deterministic Coordinator for zero-config offline operations
-			resp, err = e.executeDeterministicFallback(ctx, req, allowedTools, start)
+		// 3. Auto-probe local Ollama (OpenAI-compatible /v1 with tools, then native /api/chat)
+		resp, err = e.tryAutoOllamaBackends(ctx, req, effCfg, allowedTools, start)
+		if err != nil {
+			return nil, err
 		}
+	}
+
+	if resp == nil && err == nil {
+		// 4. Fallback: Heuristic Deterministic Coordinator for zero-config offline operations
+		resp, err = e.executeDeterministicFallback(ctx, req, allowedTools, start)
 	}
 
 	if err != nil {

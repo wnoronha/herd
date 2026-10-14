@@ -257,7 +257,7 @@ Flags:
 - `--for-node <name>`: Scaffold into that node's config directory (`~/.config/herd/<node>/agents`)
 
 ### `herd agent status [flags]`
-Shows whether this node's agent will use an **LLM** (Gemini / OpenAI-compatible / Ollama) or the **deterministic fallback** (`herd-builtin-coordinator`), where config came from (env vs KV), loaded personas, and optional role tool gaps.
+Shows whether this node's agent will use an **LLM** (Gemini / OpenAI-compatible / explicit Ollama), **auto-probe local Ollama** when no cloud keys are set, or the **deterministic fallback** (`herd-builtin-coordinator`), where config came from (env vs KV), loaded personas, and optional role tool gaps. Use `--probe` to hit the configured endpoint at status time.
 
 ```bash
 herd agent status

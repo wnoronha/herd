@@ -152,12 +152,13 @@ func classifyBackend(cfg Config) (class, provider, model string, configured bool
 		return "fallback", "fallback", fallbackModelName, false
 	}
 
-	openaiPath := cfg.OpenAIAPIKey != "" || os.Getenv("OPENAI_BASE_URL") != "" || cfg.Provider == "openai"
-	if openaiPath {
+	if openAIPathExplicit(cfg) {
 		modelName := firstNonEmpty(cfg.OpenAIModel, cfg.Model, "gpt-4o-mini")
-		if cfg.OpenAIAPIKey != "" || cfg.Provider == "openai" || os.Getenv("OPENAI_BASE_URL") != "" {
-			return "llm", "openai", modelName, cfg.OpenAIAPIKey != "" || cfg.Provider == "openai" || os.Getenv("OPENAI_BASE_URL") != ""
-		}
+		return "llm", "openai", modelName, true
+	}
+
+	if cfg.Provider != "gemini" {
+		return "auto", "ollama", firstNonEmpty(cfg.OpenAIModel, "llama3.2") + " (auto-probe " + strings.TrimSuffix(defaultOllamaOpenAIBase, "/v1") + ")", false
 	}
 
 	return "fallback", "fallback", fallbackModelName, false
@@ -170,11 +171,18 @@ func buildStatusReasonFixes(cfg Config, configured bool, backendClass string, kv
 	if backendClass == "ollama" {
 		return "Ollama provider selected.", []string{"Ensure Ollama is running at " + cfg.OllamaHost}
 	}
+	if backendClass == "auto" {
+		return "No cloud LLM keys configured; each prompt auto-probes local Ollama (" + defaultOllamaOpenAIBase + " with tools, then native chat) before deterministic fallback.",
+			[]string{
+				"Start Ollama locally or set OPENAI_BASE_URL / provider in KV to override",
+				`herd kv set agent:config:global '{"provider":"gemini","model":"gemini-3.8-flash","api_key":"<key>"}' for cloud LLM`,
+			}
+	}
 
-	reason = "No working LLM credentials or reachable OpenAI-compatible endpoint; prompts use deterministic fallback (keyword heuristics only)."
+	reason = "No LLM credentials and local Ollama probe failed or is unavailable; using deterministic fallback (keyword heuristics only)."
 	fixes = []string{
+		"Start Ollama on " + strings.TrimSuffix(defaultOllamaOpenAIBase, "/v1") + " or set GEMINI_API_KEY / OPENAI_BASE_URL",
 		`herd kv set agent:config:global '{"provider":"gemini","model":"gemini-3.8-flash","api_key":"<key>"}'`,
-		"or export GEMINI_API_KEY / OPENAI_API_KEY and restart the daemon",
 	}
 	if !kvGlobal {
 		fixes = append(fixes, "cluster KV agent:config:global is not set (optional but replicates config to all nodes)")
