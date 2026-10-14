@@ -37,7 +37,7 @@ func ParseCPTarget(spec string) CPTarget {
 
 // CopyLocalFile copies a file from src to dst and returns bytes transferred.
 func CopyLocalFile(src, dst string) (int64, error) {
-	srcFile, err := os.Open(src)
+	srcFile, err := os.Open(src) //nolint:gosec // cp source validated at the IPC boundary; local file copy is the tool's purpose
 	if err != nil {
 		return 0, fmt.Errorf("failed to open source %s: %w", src, err)
 	}
@@ -49,11 +49,11 @@ func CopyLocalFile(src, dst string) (int64, error) {
 	}
 
 	dstDir := filepath.Dir(dst)
-	if err := os.MkdirAll(dstDir, 0755); err != nil {
+	if err := os.MkdirAll(dstDir, 0755); err != nil { //nolint:gosec // standard destination-dir permissions for file transfer
 		return 0, fmt.Errorf("failed to create destination directory %s: %w", dstDir, err)
 	}
 
-	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, srcInfo.Mode().Perm())
+	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, srcInfo.Mode().Perm()) //nolint:gosec // destination inherits source mode by design
 	if err != nil {
 		return 0, fmt.Errorf("failed to open destination %s: %w", dst, err)
 	}
@@ -147,7 +147,7 @@ func HandleFileStream(conn net.Conn) error {
 
 	case "upload":
 		dstDir := filepath.Dir(cleanPath)
-		if err := os.MkdirAll(dstDir, 0755); err != nil {
+		if err := os.MkdirAll(dstDir, 0755); err != nil { //nolint:gosec // standard destination-dir permissions for file transfer
 			_ = json.NewEncoder(conn).Encode(FileTransferResponse{
 				Success: false,
 				Error:   fmt.Sprintf("failed to create directory %s: %v", dstDir, err),
@@ -218,7 +218,7 @@ func DownloadFromStream(conn net.Conn, remotePath, localDstPath string) (int64, 
 	}
 
 	dstDir := filepath.Dir(localDstPath)
-	if err := os.MkdirAll(dstDir, 0755); err != nil {
+	if err := os.MkdirAll(dstDir, 0755); err != nil { //nolint:gosec // standard destination-dir permissions for file transfer
 		return 0, fmt.Errorf("failed to create destination directory: %w", err)
 	}
 
@@ -226,7 +226,7 @@ func DownloadFromStream(conn net.Conn, remotePath, localDstPath string) (int64, 
 	if mode == 0 {
 		mode = 0644
 	}
-	dstFile, err := os.OpenFile(localDstPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+	dstFile, err := os.OpenFile(localDstPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode) //nolint:gosec // mode mirrors the sender-advertised file mode by design
 	if err != nil {
 		return 0, fmt.Errorf("failed to create local file: %w", err)
 	}
@@ -241,7 +241,7 @@ func DownloadFromStream(conn net.Conn, remotePath, localDstPath string) (int64, 
 
 // UploadToStream streams a local file over an active connection to a remote path.
 func UploadToStream(conn net.Conn, localSrcPath, remoteDstPath string) (int64, error) {
-	srcFile, err := os.Open(localSrcPath)
+	srcFile, err := os.Open(localSrcPath) //nolint:gosec // stream source validated at the IPC boundary; file transfer is the tool's purpose
 	if err != nil {
 		return 0, fmt.Errorf("failed to open source file %s: %w", localSrcPath, err)
 	}

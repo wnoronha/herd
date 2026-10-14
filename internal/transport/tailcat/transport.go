@@ -79,6 +79,63 @@ func (c *clientConn) Close() error {
 }
 
 // NewTransport initializes the UDP and TCP listeners and returns a memberlist.Transport.
+// bindDynamicPortPair finds a free UDP port and binds TCP on the same port.
+func bindDynamicPortPair(bindAddr string) (*net.UDPConn, *net.TCPListener, int, error) {
+	var lastErr error
+	for attempt := 0; attempt < 25; attempt++ {
+		uAddr, err := net.ResolveUDPAddr("udp", net.JoinHostPort(bindAddr, "0"))
+		if err != nil {
+			return nil, nil, 0, fmt.Errorf("failed to resolve UDP bind address: %w", err)
+		}
+		uConn, err := net.ListenUDP("udp", uAddr)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		port := uConn.LocalAddr().(*net.UDPAddr).Port
+		tAddr, err := net.ResolveTCPAddr("tcp", net.JoinHostPort(bindAddr, strconv.Itoa(port)))
+		if err != nil {
+			_ = uConn.Close()
+			lastErr = err
+			continue
+		}
+		tListen, err := net.ListenTCP("tcp", tAddr)
+		if err != nil {
+			_ = uConn.Close()
+			lastErr = err
+			continue
+		}
+		return uConn, tListen, port, nil
+	}
+	return nil, nil, 0, fmt.Errorf("failed to find free UDP/TCP port pair: %w", lastErr)
+}
+
+// bindFixedPortPair binds UDP and TCP listeners on one configured port.
+func bindFixedPortPair(bindAddr string, port int) (*net.UDPConn, *net.TCPListener, error) {
+	udpAddr, err := net.ResolveUDPAddr("udp", net.JoinHostPort(bindAddr, strconv.Itoa(port)))
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to resolve UDP bind address: %w", err)
+	}
+
+	uConn, err := net.ListenUDP("udp", udpAddr)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to listen UDP on %s: %w", udpAddr.String(), err)
+	}
+
+	tcpAddr, err := net.ResolveTCPAddr("tcp", net.JoinHostPort(bindAddr, strconv.Itoa(port)))
+	if err != nil {
+		_ = uConn.Close()
+		return nil, nil, fmt.Errorf("failed to resolve TCP bind address: %w", err)
+	}
+
+	tListen, err := net.ListenTCP("tcp", tcpAddr)
+	if err != nil {
+		_ = uConn.Close()
+		return nil, nil, fmt.Errorf("failed to listen TCP on %s: %w", tcpAddr.String(), err)
+	}
+	return uConn, tListen, nil
+}
+
 func NewTransport(cfg Config) (*Transport, error) {
 	if cfg.Identity == nil {
 		return nil, errors.New("identity is required for tailcat transport")
@@ -98,63 +155,17 @@ func NewTransport(cfg Config) (*Transport, error) {
 	var actualPort int
 
 	if cfg.BindPort == 0 {
-		var lastErr error
-		for attempt := 0; attempt < 25; attempt++ {
-			uAddr, err := net.ResolveUDPAddr("udp", net.JoinHostPort(cfg.BindAddr, "0"))
-			if err != nil {
-				return nil, fmt.Errorf("failed to resolve UDP bind address: %w", err)
-			}
-			uConn, err := net.ListenUDP("udp", uAddr)
-			if err != nil {
-				lastErr = err
-				continue
-			}
-			port := uConn.LocalAddr().(*net.UDPAddr).Port
-			tAddr, err := net.ResolveTCPAddr("tcp", net.JoinHostPort(cfg.BindAddr, strconv.Itoa(port)))
-			if err != nil {
-				_ = uConn.Close()
-				lastErr = err
-				continue
-			}
-			tListen, err := net.ListenTCP("tcp", tAddr)
-			if err != nil {
-				_ = uConn.Close()
-				lastErr = err
-				continue
-			}
-			udpConn = uConn
-			tcpListen = tListen
-			actualPort = port
-			break
-		}
-		if udpConn == nil || tcpListen == nil {
-			return nil, fmt.Errorf("failed to find free UDP/TCP port pair: %w", lastErr)
+		var err error
+		udpConn, tcpListen, actualPort, err = bindDynamicPortPair(cfg.BindAddr)
+		if err != nil {
+			return nil, err
 		}
 	} else {
-		udpAddr, err := net.ResolveUDPAddr("udp", net.JoinHostPort(cfg.BindAddr, strconv.Itoa(cfg.BindPort)))
+		var err error
+		udpConn, tcpListen, err = bindFixedPortPair(cfg.BindAddr, cfg.BindPort)
 		if err != nil {
-			return nil, fmt.Errorf("failed to resolve UDP bind address: %w", err)
+			return nil, err
 		}
-
-		uConn, err := net.ListenUDP("udp", udpAddr)
-		if err != nil {
-			return nil, fmt.Errorf("failed to listen UDP on %s: %w", udpAddr.String(), err)
-		}
-
-		tcpAddr, err := net.ResolveTCPAddr("tcp", net.JoinHostPort(cfg.BindAddr, strconv.Itoa(cfg.BindPort)))
-		if err != nil {
-			_ = uConn.Close()
-			return nil, fmt.Errorf("failed to resolve TCP bind address: %w", err)
-		}
-
-		tListen, err := net.ListenTCP("tcp", tcpAddr)
-		if err != nil {
-			_ = uConn.Close()
-			return nil, fmt.Errorf("failed to listen TCP on %s: %w", tcpAddr.String(), err)
-		}
-
-		udpConn = uConn
-		tcpListen = tListen
 		actualPort = cfg.BindPort
 	}
 
@@ -567,80 +578,13 @@ func (t *Transport) DialStream(addr string, streamType byte, timeout time.Durati
 		return nil, net.ErrClosed
 	}
 
-	var rawConn net.Conn
-	var dialErr error
-
 	targetPort, err := uint16Port(t.actualPort)
 	if err != nil {
 		return nil, err
 	}
-	tcEndpoint := addr
-	if h, pStr, err := splitHostPortSafe(addr); err == nil && pStr != "" {
-		if p, err := strconv.ParseUint(pStr, 10, 16); err == nil && p > 0 {
-			targetPort = uint16(p)
-			tcEndpoint = h
-		}
-	}
-
-	if strings.HasPrefix(tcEndpoint, "tcp") {
-		client := tcat.NewClient(tcat.Addr(tcEndpoint))
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		defer cancel()
-		var conn net.Conn
-		conn, dialErr = client.DialTCPPort(ctx, targetPort)
-		if dialErr != nil {
-			_ = client.Close()
-		} else {
-			rawConn = &clientConn{Conn: conn, client: client}
-		}
-	} else {
-		t.peerTailcatMu.RLock()
-		peerTC, hasTC := t.peerTailcat[addr]
-		if !hasTC {
-			cleanAddr := strings.Trim(strings.Trim(addr, "[]"), " ")
-			peerTC, hasTC = t.peerTailcat[cleanAddr]
-		}
-		if !hasTC {
-			host, _, _ := splitHostPortSafe(addr)
-			if host != "" && !isLoopbackHost(host) {
-				peerTC, hasTC = t.peerTailcat[host]
-			}
-		}
-		t.peerTailcatMu.RUnlock()
-
-		if hasTC {
-			if _, pStr, err := splitHostPortSafe(peerTC); err == nil && pStr != "" {
-				if p, err := strconv.ParseUint(pStr, 10, 16); err == nil && p > 0 {
-					targetPort = uint16(p)
-				}
-			}
-			if strings.HasPrefix(peerTC, "tcp") {
-				client := tcat.NewClient(tcat.Addr(peerTC))
-				ctx, cancel := context.WithTimeout(context.Background(), timeout)
-				defer cancel()
-				var conn net.Conn
-				conn, dialErr = client.DialTCPPort(ctx, targetPort)
-				if dialErr != nil {
-					_ = client.Close()
-				} else {
-					rawConn = &clientConn{Conn: conn, client: client}
-				}
-			} else {
-				d := net.Dialer{Timeout: timeout}
-				rawConn, dialErr = d.Dial("tcp", peerTC)
-			}
-		} else {
-			dialTarget := addr
-			if h, p, err := splitHostPortSafe(addr); err == nil && p != "" {
-				dialTarget = net.JoinHostPort(h, p)
-			}
-			d := net.Dialer{Timeout: timeout}
-			rawConn, dialErr = d.Dial("tcp", dialTarget)
-		}
-	}
-
-	if dialErr != nil {
-		return nil, fmt.Errorf("failed to dial peer %s: %w", addr, dialErr)
+	rawConn, err := t.dialStreamRaw(addr, targetPort, timeout)
+	if err != nil {
+		return nil, err
 	}
 
 	// Perform mutual identity handshake with streamType
@@ -672,6 +616,91 @@ func (t *Transport) DialStream(addr string, streamType byte, timeout time.Durati
 	}
 
 	return secureStream, nil
+}
+
+// dialStreamRaw resolves the dial endpoint and opens the raw connection.
+func (t *Transport) dialStreamRaw(addr string, targetPort uint16, timeout time.Duration) (net.Conn, error) {
+	tcEndpoint := addr
+	if h, pStr, err := splitHostPortSafe(addr); err == nil && pStr != "" {
+		if p, err := strconv.ParseUint(pStr, 10, 16); err == nil && p > 0 {
+			targetPort = uint16(p)
+			tcEndpoint = h
+		}
+	}
+
+	if strings.HasPrefix(tcEndpoint, "tcp") {
+		conn, _, err := dialTailcatEndpoint(tcEndpoint, targetPort, timeout)
+		return conn, err
+	}
+
+	peerTC, hasTC := t.lookupPeerTailcat(addr)
+	if !hasTC {
+		d := net.Dialer{Timeout: timeout}
+		dialTarget := addr
+		if h, p, err := splitHostPortSafe(addr); err == nil && p != "" {
+			dialTarget = net.JoinHostPort(h, p)
+		}
+		rawConn, err := d.Dial("tcp", dialTarget)
+		if err != nil {
+			return nil, fmt.Errorf("failed to dial peer %s: %w", addr, err)
+		}
+		return rawConn, nil
+	}
+
+	if p := tailcatPort(peerTC); p > 0 {
+		targetPort = p
+	}
+	if strings.HasPrefix(peerTC, "tcp") {
+		conn, _, err := dialTailcatEndpoint(peerTC, targetPort, timeout)
+		return conn, err
+	}
+	d := net.Dialer{Timeout: timeout}
+	rawConn, err := d.Dial("tcp", peerTC)
+	if err != nil {
+		return nil, fmt.Errorf("failed to dial peer %s: %w", addr, err)
+	}
+	return rawConn, nil
+}
+
+// dialTailcatEndpoint dials a tcp-prefixed tailcat endpoint's port.
+func dialTailcatEndpoint(endpoint string, targetPort uint16, timeout time.Duration) (net.Conn, uint16, error) {
+	client := tcat.NewClient(tcat.Addr(endpoint))
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	conn, err := client.DialTCPPort(ctx, targetPort)
+	if err != nil {
+		_ = client.Close()
+		return nil, targetPort, fmt.Errorf("failed to dial peer %s: %w", endpoint, err)
+	}
+	return &clientConn{Conn: conn, client: client}, targetPort, nil
+}
+
+// lookupPeerTailcat resolves a peer's tailcat address with host fallbacks.
+func (t *Transport) lookupPeerTailcat(addr string) (string, bool) {
+	t.peerTailcatMu.RLock()
+	defer t.peerTailcatMu.RUnlock()
+	peerTC, hasTC := t.peerTailcat[addr]
+	if !hasTC {
+		cleanAddr := strings.Trim(strings.Trim(addr, "[]"), " ")
+		peerTC, hasTC = t.peerTailcat[cleanAddr]
+	}
+	if !hasTC {
+		host, _, _ := splitHostPortSafe(addr)
+		if host != "" && !isLoopbackHost(host) {
+			peerTC, hasTC = t.peerTailcat[host]
+		}
+	}
+	return peerTC, hasTC
+}
+
+// tailcatPort extracts an explicit port from a tailcat address, or 0.
+func tailcatPort(peerTC string) uint16 {
+	if _, pStr, err := splitHostPortSafe(peerTC); err == nil && pStr != "" {
+		if p, err := strconv.ParseUint(pStr, 10, 16); err == nil && p > 0 {
+			return uint16(p)
+		}
+	}
+	return 0
 }
 
 // DialTimeout establishes an encrypted TCP stream connection for memberlist gossip.

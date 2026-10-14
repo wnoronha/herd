@@ -82,7 +82,7 @@ func exportDocs(targetDir string) error {
 		return fmt.Errorf("failed to list docs: %w", err)
 	}
 
-	if err := os.MkdirAll(targetDir, 0755); err != nil {
+	if err := os.MkdirAll(targetDir, 0755); err != nil { //nolint:gosec // export dir is user-chosen via --export; standard permissions
 		return fmt.Errorf("failed to create directory %s: %w", targetDir, err)
 	}
 
@@ -92,7 +92,7 @@ func exportDocs(targetDir string) error {
 			continue
 		}
 		destPath := filepath.Join(targetDir, d.Filename)
-		if err := os.WriteFile(destPath, []byte(content), 0644); err != nil {
+		if err := os.WriteFile(destPath, []byte(content), 0644); err != nil { //nolint:gosec // docs export targets a user-chosen dir; rendered guides are world-readable by design
 			return fmt.Errorf("failed to write %s: %w", destPath, err)
 		}
 		fmt.Printf("Exported %s\n", destPath)

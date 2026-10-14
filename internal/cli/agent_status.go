@@ -203,6 +203,45 @@ func fetchRemoteAgentStatus(ctx context.Context, client *ipc.Client, node string
 	return &nodeReport, ""
 }
 
+func printAgentRoleStatus(role *ipc.AgentRoleStatus) {
+	fmt.Println()
+	fmt.Printf("Role:        %s\n", role.Role)
+	if role.UsesFullToolset {
+		fmt.Printf("Tools:       all registered tools (no allowlist)\n")
+	} else {
+		fmt.Printf("Allowed:     %s\n", strings.Join(role.AllowedTools, ", "))
+	}
+	if len(role.MissingFromRole) > 0 {
+		fmt.Printf("Not in role: %s (add to AGENTS.md or use a role that includes them)\n",
+			strings.Join(role.MissingFromRole, ", "))
+	}
+}
+
+func printAgentProbeStatus(probe *ipc.AgentProbeStatus) {
+	fmt.Println()
+	if probe.OK {
+		fmt.Printf("Probe:       OK (%s reachable)\n", probe.Provider)
+		if len(probe.Models) > 0 {
+			fmt.Printf("Models:      %s\n", strings.Join(probe.Models, ", "))
+		}
+		return
+	}
+	fmt.Printf("Probe:       FAILED (%s): %s\n", probe.Provider, probe.Error)
+}
+
+func printAgentReasonFixes(reason string, hints []string) {
+	if reason != "" {
+		fmt.Println()
+		fmt.Printf("Note:        %s\n", reason)
+	}
+	if len(hints) > 0 {
+		fmt.Println("Fix:")
+		for _, hint := range hints {
+			fmt.Printf("  • %s\n", hint)
+		}
+	}
+}
+
 func printAgentStatus(report *ipc.AgentStatusResponse) {
 	if report == nil {
 		return
@@ -234,41 +273,14 @@ func printAgentStatus(report *ipc.AgentStatusResponse) {
 	}
 
 	if report.Role != nil {
-		fmt.Println()
-		fmt.Printf("Role:        %s\n", report.Role.Role)
-		if report.Role.UsesFullToolset {
-			fmt.Printf("Tools:       all registered tools (no allowlist)\n")
-		} else {
-			fmt.Printf("Allowed:     %s\n", strings.Join(report.Role.AllowedTools, ", "))
-		}
-		if len(report.Role.MissingFromRole) > 0 {
-			fmt.Printf("Not in role: %s (add to AGENTS.md or use a role that includes them)\n",
-				strings.Join(report.Role.MissingFromRole, ", "))
-		}
+		printAgentRoleStatus(report.Role)
 	}
 
 	if report.Probe != nil && report.Probe.Attempted {
-		fmt.Println()
-		if report.Probe.OK {
-			fmt.Printf("Probe:       OK (%s reachable)\n", report.Probe.Provider)
-			if len(report.Probe.Models) > 0 {
-				fmt.Printf("Models:      %s\n", strings.Join(report.Probe.Models, ", "))
-			}
-		} else {
-			fmt.Printf("Probe:       FAILED (%s): %s\n", report.Probe.Provider, report.Probe.Error)
-		}
+		printAgentProbeStatus(report.Probe)
 	}
 
-	if report.Reason != "" {
-		fmt.Println()
-		fmt.Printf("Note:        %s\n", report.Reason)
-	}
-	if len(report.FixHints) > 0 {
-		fmt.Println("Fix:")
-		for _, hint := range report.FixHints {
-			fmt.Printf("  • %s\n", hint)
-		}
-	}
+	printAgentReasonFixes(report.Reason, report.FixHints)
 	if report.ConfiguredLLM && report.BackendClass == "llm" {
 		fmt.Println()
 		fmt.Println("Next:        herd agent prompt \"hello\"")

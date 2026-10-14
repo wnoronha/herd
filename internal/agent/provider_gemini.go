@@ -38,56 +38,7 @@ func (e *Engine) executeWithGemini(ctx context.Context, req *PromptRequest, cfg 
 	}
 
 	toolsToUse := e.getEffectiveTools(allowedTools)
-
-	// Build GenAI Tools declarations
-	var funcDecls []*genai.FunctionDeclaration
-	for _, t := range toolsToUse {
-		schema := &genai.Schema{
-			Type: genai.TypeObject,
-		}
-		if propMap, ok := t.Parameters["properties"].(map[string]any); ok {
-			schema.Properties = make(map[string]*genai.Schema)
-			for propName, propDef := range propMap {
-				pDefMap, _ := propDef.(map[string]any)
-				propType, _ := pDefMap["type"].(string)
-				propDesc, _ := pDefMap["description"].(string)
-
-				var gType genai.Type
-				switch propType {
-				case "string":
-					gType = genai.TypeString
-				case "integer", "number":
-					gType = genai.TypeInteger
-				case "boolean":
-					gType = genai.TypeBoolean
-				default:
-					gType = genai.TypeString
-				}
-
-				schema.Properties[propName] = &genai.Schema{
-					Type:        gType,
-					Description: propDesc,
-				}
-			}
-		}
-
-		funcDecls = append(funcDecls, &genai.FunctionDeclaration{
-			Name:        t.Name,
-			Description: t.Description,
-			Parameters:  schema,
-		})
-	}
-
-	genConfig := &genai.GenerateContentConfig{
-		SystemInstruction: &genai.Content{
-			Parts: []*genai.Part{
-				{Text: sysPrompt},
-			},
-		},
-		Tools: []*genai.Tool{
-			{FunctionDeclarations: funcDecls},
-		},
-	}
+	funcDecls := buildGeminiFuncDecls(toolsToUse)
 
 	var toolsCalled []ToolCall
 	history := []*genai.Content{
@@ -102,7 +53,7 @@ func (e *Engine) executeWithGemini(ctx context.Context, req *PromptRequest, cfg 
 	// Tool execution loop (max 5 turns)
 	var finalResponse string
 	for turn := 0; turn < 5; turn++ {
-		resp, err := client.Models.GenerateContent(ctx, model, history, genConfig)
+		resp, err := client.Models.GenerateContent(ctx, model, history, geminiGenConfig(sysPrompt, funcDecls))
 		if err != nil {
 			return nil, fmt.Errorf("gemini generation failed: %w", err)
 		}
@@ -129,81 +80,8 @@ func (e *Engine) executeWithGemini(ctx context.Context, req *PromptRequest, cfg 
 		}
 
 		// Execute function calls in parallel while preserving order
-		type geminiExecResult struct {
-			fc        *genai.FunctionCall
-			argsBytes []byte
-			resBytes  []byte
-			resMap    map[string]any
-		}
-
-		results := make([]geminiExecResult, len(functionCalls))
-		var wg sync.WaitGroup
-		wg.Add(len(functionCalls))
-
-		for i, fc := range functionCalls {
-			go func(idx int, call *genai.FunctionCall) {
-				defer wg.Done()
-
-				tool, exists := toolsToUse[call.Name]
-				var toolResult any
-				var execErr error
-
-				if !exists {
-					toolResult = map[string]any{"error": fmt.Sprintf("tool '%s' is not allowed or registered for this agent", call.Name)}
-				} else {
-					args := make(map[string]any)
-					for k, v := range call.Args {
-						args[k] = v
-					}
-					// Check agent:policy:allowed_exec security policy for cluster_exec
-					if call.Name == "cluster_exec" {
-						if cmd, ok := args["command"].(string); ok {
-							if policyErr := e.validateExecPolicy(cmd); policyErr != nil {
-								execErr = policyErr
-							}
-						}
-					}
-					if execErr == nil {
-						toolResult, execErr = tool.Handler(ctx, args)
-					}
-					if execErr != nil {
-						toolResult = map[string]any{"error": execErr.Error()}
-					}
-				}
-
-				argsBytes, _ := json.Marshal(call.Args)
-				resBytes, _ := json.Marshal(toolResult)
-
-				var resMap map[string]any
-				if err := json.Unmarshal(resBytes, &resMap); err != nil {
-					resMap = map[string]any{"result": string(resBytes)}
-				}
-
-				results[idx] = geminiExecResult{
-					fc:        call,
-					argsBytes: argsBytes,
-					resBytes:  resBytes,
-					resMap:    resMap,
-				}
-			}(i, fc)
-		}
-		wg.Wait()
-
-		var responseParts []*genai.Part
-		for _, r := range results {
-			toolsCalled = append(toolsCalled, ToolCall{
-				Name:      r.fc.Name,
-				Arguments: string(r.argsBytes),
-				Result:    string(r.resBytes),
-			})
-
-			responseParts = append(responseParts, &genai.Part{
-				FunctionResponse: &genai.FunctionResponse{
-					Name:     r.fc.Name,
-					Response: r.resMap,
-				},
-			})
-		}
+		responseParts, calls := e.runGeminiToolCalls(ctx, toolsToUse, functionCalls)
+		toolsCalled = append(toolsCalled, calls...)
 
 		history = append(history, &genai.Content{
 			Role:  "user",
@@ -217,4 +95,149 @@ func (e *Engine) executeWithGemini(ctx context.Context, req *PromptRequest, cfg 
 		ModelUsed:   model,
 		ExecutionMs: time.Since(start).Milliseconds(),
 	}, nil
+}
+
+// geminiExecResult carries one ordered tool-call outcome.
+type geminiExecResult struct {
+	fc        *genai.FunctionCall
+	argsBytes []byte
+	resBytes  []byte
+	resMap    map[string]any
+}
+
+// runGeminiToolCalls executes function calls in parallel while preserving order.
+func (e *Engine) runGeminiToolCalls(ctx context.Context, toolsToUse map[string]ToolDefinition, functionCalls []*genai.FunctionCall) ([]*genai.Part, []ToolCall) {
+	results := make([]geminiExecResult, len(functionCalls))
+	var wg sync.WaitGroup
+	wg.Add(len(functionCalls))
+
+	for i, fc := range functionCalls {
+		go func(idx int, call *genai.FunctionCall) {
+			defer wg.Done()
+			results[idx] = e.execGeminiToolCall(ctx, toolsToUse, call)
+		}(i, fc)
+	}
+	wg.Wait()
+
+	var responseParts []*genai.Part
+	var calls []ToolCall
+	for _, r := range results {
+		calls = append(calls, ToolCall{
+			Name:      r.fc.Name,
+			Arguments: string(r.argsBytes),
+			Result:    string(r.resBytes),
+		})
+
+		responseParts = append(responseParts, &genai.Part{
+			FunctionResponse: &genai.FunctionResponse{
+				Name:     r.fc.Name,
+				Response: r.resMap,
+			},
+		})
+	}
+	return responseParts, calls
+}
+
+// execGeminiToolCall runs one Gemini function call with policy enforcement.
+func (e *Engine) execGeminiToolCall(ctx context.Context, toolsToUse map[string]ToolDefinition, call *genai.FunctionCall) geminiExecResult {
+	tool, exists := toolsToUse[call.Name]
+	var toolResult any
+	var execErr error
+
+	if !exists {
+		toolResult = map[string]any{"error": fmt.Sprintf("tool '%s' is not allowed or registered for this agent", call.Name)}
+	} else {
+		args := make(map[string]any)
+		for k, v := range call.Args {
+			args[k] = v
+		}
+		// Check agent:policy:allowed_exec security policy for cluster_exec
+		if call.Name == "cluster_exec" {
+			if cmd, ok := args["command"].(string); ok {
+				if policyErr := e.validateExecPolicy(cmd); policyErr != nil {
+					execErr = policyErr
+				}
+			}
+		}
+		if execErr == nil {
+			toolResult, execErr = tool.Handler(ctx, args)
+		}
+		if execErr != nil {
+			toolResult = map[string]any{"error": execErr.Error()}
+		}
+	}
+
+	argsBytes, _ := json.Marshal(call.Args)
+	resBytes, _ := json.Marshal(toolResult)
+
+	var resMap map[string]any
+	if err := json.Unmarshal(resBytes, &resMap); err != nil {
+		resMap = map[string]any{"result": string(resBytes)}
+	}
+
+	return geminiExecResult{
+		fc:        call,
+		argsBytes: argsBytes,
+		resBytes:  resBytes,
+		resMap:    resMap,
+	}
+}
+
+// buildGeminiFuncDecls converts tool definitions to GenAI function declarations.
+func buildGeminiFuncDecls(toolsToUse map[string]ToolDefinition) []*genai.FunctionDeclaration {
+	var funcDecls []*genai.FunctionDeclaration
+	for _, t := range toolsToUse {
+		funcDecls = append(funcDecls, &genai.FunctionDeclaration{
+			Name:        t.Name,
+			Description: t.Description,
+			Parameters:  geminiToolSchema(t),
+		})
+	}
+	return funcDecls
+}
+
+// geminiToolSchema converts a tool's JSON-schema properties to a GenAI schema.
+func geminiToolSchema(t ToolDefinition) *genai.Schema {
+	schema := &genai.Schema{Type: genai.TypeObject}
+	propMap, ok := t.Parameters["properties"].(map[string]any)
+	if !ok {
+		return schema
+	}
+	schema.Properties = make(map[string]*genai.Schema)
+	for propName, propDef := range propMap {
+		pDefMap, _ := propDef.(map[string]any)
+		propType, _ := pDefMap["type"].(string)
+		propDesc, _ := pDefMap["description"].(string)
+		schema.Properties[propName] = &genai.Schema{
+			Type:        geminiSchemaType(propType),
+			Description: propDesc,
+		}
+	}
+	return schema
+}
+
+// geminiSchemaType maps JSON-schema type names to GenAI types.
+func geminiSchemaType(propType string) genai.Type {
+	switch propType {
+	case "integer", "number":
+		return genai.TypeInteger
+	case "boolean":
+		return genai.TypeBoolean
+	default:
+		return genai.TypeString
+	}
+}
+
+// geminiGenConfig builds the generation config for one reasoning turn.
+func geminiGenConfig(sysPrompt string, funcDecls []*genai.FunctionDeclaration) *genai.GenerateContentConfig {
+	return &genai.GenerateContentConfig{
+		SystemInstruction: &genai.Content{
+			Parts: []*genai.Part{
+				{Text: sysPrompt},
+			},
+		},
+		Tools: []*genai.Tool{
+			{FunctionDeclarations: funcDecls},
+		},
+	}
 }

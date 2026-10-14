@@ -154,7 +154,7 @@ func buildFileWriteTool() ToolDefinition {
 
 			// Ensure parent directory exists
 			dir := filepath.Dir(filePath)
-			if err := os.MkdirAll(dir, 0755); err != nil {
+			if err := os.MkdirAll(dir, 0755); err != nil { //nolint:gosec // standard workspace-dir permissions for file output
 				return nil, fmt.Errorf("failed to create directory '%s': %w", dir, err)
 			}
 
@@ -180,7 +180,7 @@ func buildFileWriteTool() ToolDefinition {
 				}
 			}
 
-			f, err := os.OpenFile(filePath, flags, 0644)
+			f, err := os.OpenFile(filePath, flags, 0644) //nolint:gosec // agent workspace files are group-readable by design (user-owned, not secrets)
 			if err != nil {
 				return nil, fmt.Errorf("failed to open file '%s': %w", filePath, err)
 			}
@@ -269,7 +269,7 @@ func buildArtifactStoreTool(cctx ClusterContext) ToolDefinition {
 			action = strings.ToLower(strings.TrimSpace(action))
 
 			artifactsDir := resolveArtifactsDir(cctx)
-			if err := os.MkdirAll(artifactsDir, 0755); err != nil {
+			if err := os.MkdirAll(artifactsDir, 0755); err != nil { //nolint:gosec // standard artifact-store permissions
 				return nil, fmt.Errorf("failed to create artifacts directory '%s': %w", artifactsDir, err)
 			}
 
@@ -313,7 +313,7 @@ func executeArtifactStore(artifactsDir string, args map[string]any) (any, error)
 	}
 
 	// If previously existing, retain CreatedAt
-	if existingBytes, err := os.ReadFile(metaPath); err == nil {
+	if existingBytes, err := os.ReadFile(metaPath); err == nil { //nolint:gosec // metaPath is Join(artifactsDir, filepath.Base(name)); traversal neutralized
 		var oldMeta ArtifactMeta
 		if err := json.Unmarshal(existingBytes, &oldMeta); err == nil && !oldMeta.CreatedAt.IsZero() {
 			meta.CreatedAt = oldMeta.CreatedAt
@@ -326,14 +326,14 @@ func executeArtifactStore(artifactsDir string, args map[string]any) (any, error)
 		}
 	}
 
-	if err := os.WriteFile(dataPath, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(dataPath, []byte(content), 0644); err != nil { //nolint:gosec // artifact store is group-readable by design
 		return nil, fmt.Errorf("failed to store artifact data: %w", err)
 	}
 	metaBytes, err := json.MarshalIndent(meta, "", "  ")
 	if err != nil {
 		return nil, fmt.Errorf("failed to serialize artifact metadata: %w", err)
 	}
-	if err := os.WriteFile(metaPath, metaBytes, 0644); err != nil {
+	if err := os.WriteFile(metaPath, metaBytes, 0644); err != nil { //nolint:gosec // artifact metadata is group-readable by design
 		return nil, fmt.Errorf("failed to store artifact metadata: %w", err)
 	}
 
@@ -356,13 +356,13 @@ func executeArtifactGet(artifactsDir string, args map[string]any) (any, error) {
 	dataPath := filepath.Join(artifactsDir, cleanName)
 	metaPath := filepath.Join(artifactsDir, cleanName+".meta.json")
 
-	contentBytes, err := os.ReadFile(dataPath)
+	contentBytes, err := os.ReadFile(dataPath) //nolint:gosec // dataPath is Join(artifactsDir, filepath.Base(name)); traversal neutralized
 	if err != nil {
 		return nil, fmt.Errorf("artifact '%s' not found: %w", cleanName, err)
 	}
 
 	var meta ArtifactMeta
-	if metaBytes, err := os.ReadFile(metaPath); err == nil {
+	if metaBytes, err := os.ReadFile(metaPath); err == nil { //nolint:gosec // metaPath is Join(artifactsDir, filepath.Base(name)); traversal neutralized
 		_ = json.Unmarshal(metaBytes, &meta)
 	} else {
 		fi, _ := os.Stat(dataPath)
@@ -399,7 +399,7 @@ func executeArtifactList(artifactsDir string) (any, error) {
 		metaPath := filepath.Join(artifactsDir, cleanName+".meta.json")
 
 		var meta ArtifactMeta
-		if metaBytes, err := os.ReadFile(metaPath); err == nil {
+		if metaBytes, err := os.ReadFile(metaPath); err == nil { //nolint:gosec // metaPath is Join(artifactsDir, filepath.Base(name)); traversal neutralized
 			_ = json.Unmarshal(metaBytes, &meta)
 		}
 		if meta.Name == "" {

@@ -119,26 +119,7 @@ func (e *Engine) resolveEffectiveConfig() Config {
 	if entry, ok := kvStore.Get("agent:config:global"); ok && len(entry.Value) > 0 {
 		var gCfg AgentClusterConfig
 		if err := json.Unmarshal(entry.Value, &gCfg); err == nil {
-			if gCfg.Provider != "" {
-				effective.Provider = gCfg.Provider
-			}
-			if gCfg.Model != "" {
-				effective.OpenAIModel = gCfg.Model
-				effective.Model = gCfg.Model
-			}
-			if gCfg.BaseURL != "" {
-				effective.OpenAIBaseURL = gCfg.BaseURL
-			}
-			if gCfg.APIKey != "" {
-				if gCfg.Provider == "gemini" {
-					effective.APIKey = gCfg.APIKey
-				} else {
-					effective.OpenAIAPIKey = gCfg.APIKey
-				}
-			}
-			if gCfg.SystemPrompt != "" {
-				effective.SystemPrompt = gCfg.SystemPrompt
-			}
+			applyClusterConfig(&effective, gCfg)
 		}
 	}
 
@@ -147,30 +128,35 @@ func (e *Engine) resolveEffectiveConfig() Config {
 	if entry, ok := kvStore.Get(nodeKey); ok && len(entry.Value) > 0 {
 		var nCfg AgentClusterConfig
 		if err := json.Unmarshal(entry.Value, &nCfg); err == nil {
-			if nCfg.Provider != "" {
-				effective.Provider = nCfg.Provider
-			}
-			if nCfg.Model != "" {
-				effective.OpenAIModel = nCfg.Model
-				effective.Model = nCfg.Model
-			}
-			if nCfg.BaseURL != "" {
-				effective.OpenAIBaseURL = nCfg.BaseURL
-			}
-			if nCfg.APIKey != "" {
-				if nCfg.Provider == "gemini" {
-					effective.APIKey = nCfg.APIKey
-				} else {
-					effective.OpenAIAPIKey = nCfg.APIKey
-				}
-			}
-			if nCfg.SystemPrompt != "" {
-				effective.SystemPrompt = nCfg.SystemPrompt
-			}
+			applyClusterConfig(&effective, nCfg)
 		}
 	}
 
 	return effective
+}
+
+// applyClusterConfig overlays non-empty KV cluster-agent fields onto cfg.
+func applyClusterConfig(effective *Config, c AgentClusterConfig) {
+	if c.Provider != "" {
+		effective.Provider = c.Provider
+	}
+	if c.Model != "" {
+		effective.OpenAIModel = c.Model
+		effective.Model = c.Model
+	}
+	if c.BaseURL != "" {
+		effective.OpenAIBaseURL = c.BaseURL
+	}
+	if c.APIKey != "" {
+		if c.Provider == "gemini" {
+			effective.APIKey = c.APIKey
+		} else {
+			effective.OpenAIAPIKey = c.APIKey
+		}
+	}
+	if c.SystemPrompt != "" {
+		effective.SystemPrompt = c.SystemPrompt
+	}
 }
 
 func (e *Engine) effectiveConfigForRequest(req *PromptRequest) (Config, []string, error) {

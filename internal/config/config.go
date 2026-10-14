@@ -181,7 +181,7 @@ func resolveNetwork(cfg *Config, opt Options) {
 }
 
 func (c *Config) loadFromFile(path string) error {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // config path comes from XDG dirs or explicit flags
 	if err != nil {
 		return err
 	}

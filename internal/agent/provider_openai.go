@@ -137,61 +137,7 @@ func (e *Engine) executeWithOpenAI(ctx context.Context, req *PromptRequest, cfg 
 		})
 
 		// Dispatch and execute tool calls in parallel while preserving order
-		type openAIExecResult struct {
-			tc       OpenAIToolCall
-			resBytes []byte
-		}
-
-		results := make([]openAIExecResult, len(assistantMsg.ToolCalls))
-		var wg sync.WaitGroup
-		wg.Add(len(assistantMsg.ToolCalls))
-
-		for i, tc := range assistantMsg.ToolCalls {
-			go func(idx int, call OpenAIToolCall) {
-				defer wg.Done()
-
-				var args map[string]any
-				if call.Function.Arguments != "" {
-					_ = json.Unmarshal([]byte(call.Function.Arguments), &args)
-				}
-				if args == nil {
-					args = make(map[string]any)
-				}
-
-				var toolResult any
-				var execErr error
-
-				tool, exists := toolsToUse[call.Function.Name]
-				if !exists {
-					toolResult = map[string]any{"error": fmt.Sprintf("tool '%s' is not allowed or registered for this agent", call.Function.Name)}
-				} else {
-					// Check agent:policy:allowed_exec security policy for cluster_exec
-					if call.Function.Name == "cluster_exec" {
-						if cmd, ok := args["command"].(string); ok {
-							if policyErr := e.validateExecPolicy(cmd); policyErr != nil {
-								execErr = policyErr
-							}
-						}
-					}
-
-					if execErr == nil {
-						toolResult, execErr = tool.Handler(ctx, args)
-					}
-					if execErr != nil {
-						toolResult = map[string]any{"error": execErr.Error()}
-					}
-				}
-
-				resBytes, _ := json.Marshal(toolResult)
-				results[idx] = openAIExecResult{
-					tc:       call,
-					resBytes: resBytes,
-				}
-			}(i, tc)
-		}
-		wg.Wait()
-
-		for _, r := range results {
+		for _, r := range e.runOpenAIToolCalls(ctx, toolsToUse, assistantMsg.ToolCalls) {
 			toolsCalled = append(toolsCalled, ToolCall{
 				Name:      r.tc.Function.Name,
 				Arguments: r.tc.Function.Arguments,
@@ -214,6 +160,69 @@ func (e *Engine) executeWithOpenAI(ctx context.Context, req *PromptRequest, cfg 
 		ModelUsed:   model,
 		ExecutionMs: time.Since(start).Milliseconds(),
 	}, nil
+}
+
+// openAIExecResult carries one ordered tool-call outcome.
+type openAIExecResult struct {
+	tc       OpenAIToolCall
+	resBytes []byte
+}
+
+// runOpenAIToolCalls executes tool calls in parallel while preserving order.
+func (e *Engine) runOpenAIToolCalls(ctx context.Context, toolsToUse map[string]ToolDefinition, calls []OpenAIToolCall) []openAIExecResult {
+	results := make([]openAIExecResult, len(calls))
+	var wg sync.WaitGroup
+	wg.Add(len(calls))
+
+	for i, tc := range calls {
+		go func(idx int, call OpenAIToolCall) {
+			defer wg.Done()
+			results[idx] = openAIExecResult{
+				tc:       call,
+				resBytes: e.execOpenAIToolCall(ctx, toolsToUse, call),
+			}
+		}(i, tc)
+	}
+	wg.Wait()
+	return results
+}
+
+// execOpenAIToolCall runs one OpenAI tool call with policy enforcement.
+func (e *Engine) execOpenAIToolCall(ctx context.Context, toolsToUse map[string]ToolDefinition, call OpenAIToolCall) []byte {
+	var args map[string]any
+	if call.Function.Arguments != "" {
+		_ = json.Unmarshal([]byte(call.Function.Arguments), &args)
+	}
+	if args == nil {
+		args = make(map[string]any)
+	}
+
+	var toolResult any
+	var execErr error
+
+	tool, exists := toolsToUse[call.Function.Name]
+	if !exists {
+		toolResult = map[string]any{"error": fmt.Sprintf("tool '%s' is not allowed or registered for this agent", call.Function.Name)}
+	} else {
+		// Check agent:policy:allowed_exec security policy for cluster_exec
+		if call.Function.Name == "cluster_exec" {
+			if cmd, ok := args["command"].(string); ok {
+				if policyErr := e.validateExecPolicy(cmd); policyErr != nil {
+					execErr = policyErr
+				}
+			}
+		}
+
+		if execErr == nil {
+			toolResult, execErr = tool.Handler(ctx, args)
+		}
+		if execErr != nil {
+			toolResult = map[string]any{"error": execErr.Error()}
+		}
+	}
+
+	resBytes, _ := json.Marshal(toolResult)
+	return resBytes
 }
 
 // validateExecPolicy checks command against agent:policy:allowed_exec whitelist in KV store if configured.

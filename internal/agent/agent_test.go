@@ -148,33 +148,7 @@ func TestAgentTools(t *testing.T) {
 	})
 
 	t.Run("SharedKVTool", func(t *testing.T) {
-		tool, ok := engine.tools["shared_kv"]
-		if !ok {
-			t.Fatalf("shared_kv tool not found")
-		}
-
-		// Set
-		_, err := tool.Handler(context.Background(), map[string]any{
-			"action": "set",
-			"key":    "agent/status",
-			"value":  "active",
-		})
-		if err != nil {
-			t.Fatalf("set failed: %v", err)
-		}
-
-		// Get
-		res, err := tool.Handler(context.Background(), map[string]any{
-			"action": "get",
-			"key":    "agent/status",
-		})
-		if err != nil {
-			t.Fatalf("get failed: %v", err)
-		}
-		resMap, ok := res.(map[string]any)
-		if !ok || resMap["value"] != "active" {
-			t.Fatalf("expected value 'active', got: %v", res)
-		}
+		testAgentToolsSharedKV(t, engine)
 	})
 
 	t.Run("DeterministicFallbackPrompt", func(t *testing.T) {
@@ -190,49 +164,90 @@ func TestAgentTools(t *testing.T) {
 	})
 
 	t.Run("DynamicKVConfigResolution", func(t *testing.T) {
-		// Seed global agent config in KV
-		globalJSON := `{"model":"llama3.2-custom","base_url":"http://10.0.0.1:11434/v1"}`
-		kvStore.Set("agent:config:global", []byte(globalJSON), 0)
-
-		eff := engine.resolveEffectiveConfig()
-		if eff.OpenAIModel != "llama3.2-custom" {
-			t.Errorf("expected model 'llama3.2-custom', got: %s", eff.OpenAIModel)
-		}
-		if eff.OpenAIBaseURL != "http://10.0.0.1:11434/v1" {
-			t.Errorf("expected base_url 'http://10.0.0.1:11434/v1', got: %s", eff.OpenAIBaseURL)
-		}
-
-		// Seed node-specific override in KV
-		nodeJSON := `{"model":"qwen2.5-coder:1.5b"}`
-		kvStore.Set("agent:config:nodes/test-node", []byte(nodeJSON), 0)
-
-		effNode := engine.resolveEffectiveConfig()
-		if effNode.OpenAIModel != "qwen2.5-coder:1.5b" {
-			t.Errorf("expected node override model 'qwen2.5-coder:1.5b', got: %s", effNode.OpenAIModel)
-		}
+		testAgentToolsDynamicKVConfig(t, engine, kvStore)
 	})
 
 	t.Run("ExecPolicyValidation", func(t *testing.T) {
-		// Set allowed policy whitelist
-		policyJSON := `["uptime", "df -h", "systemctl status *"]`
-		kvStore.Set("agent:policy:allowed_exec", []byte(policyJSON), 0)
-
-		if err := engine.validateExecPolicy("uptime"); err != nil {
-			t.Errorf("expected 'uptime' to be permitted, got: %v", err)
-		}
-		if err := engine.validateExecPolicy("systemctl status herd"); err != nil {
-			t.Errorf("expected 'systemctl status herd' wildcard to be permitted, got: %v", err)
-		}
-		if err := engine.validateExecPolicy("rm -rf /"); err == nil {
-			t.Errorf("expected 'rm -rf /' to be rejected by policy")
-		}
-
-		// Corrupt policy must fail closed, never fail open.
-		kvStore.Set("agent:policy:allowed_exec", []byte(`["uptime",`), 0)
-		if err := engine.validateExecPolicy("uptime"); err == nil {
-			t.Errorf("expected corrupt policy to deny 'uptime' (fail closed)")
-		}
+		testAgentToolsExecPolicy(t, engine, kvStore)
 	})
+}
+
+func testAgentToolsSharedKV(t *testing.T, engine *Engine) {
+	t.Helper()
+	tool, ok := engine.tools["shared_kv"]
+	if !ok {
+		t.Fatalf("shared_kv tool not found")
+	}
+
+	// Set
+	_, err := tool.Handler(context.Background(), map[string]any{
+		"action": "set",
+		"key":    "agent/status",
+		"value":  "active",
+	})
+	if err != nil {
+		t.Fatalf("set failed: %v", err)
+	}
+
+	// Get
+	res, err := tool.Handler(context.Background(), map[string]any{
+		"action": "get",
+		"key":    "agent/status",
+	})
+	if err != nil {
+		t.Fatalf("get failed: %v", err)
+	}
+	resMap, ok := res.(map[string]any)
+	if !ok || resMap["value"] != "active" {
+		t.Fatalf("expected value 'active', got: %v", res)
+	}
+}
+
+func testAgentToolsDynamicKVConfig(t *testing.T, engine *Engine, kvStore *kv.Store) {
+	t.Helper()
+	// Seed global agent config in KV
+	globalJSON := `{"model":"llama3.2-custom","base_url":"http://10.0.0.1:11434/v1"}`
+	kvStore.Set("agent:config:global", []byte(globalJSON), 0)
+
+	eff := engine.resolveEffectiveConfig()
+	if eff.OpenAIModel != "llama3.2-custom" {
+		t.Errorf("expected model 'llama3.2-custom', got: %s", eff.OpenAIModel)
+	}
+	if eff.OpenAIBaseURL != "http://10.0.0.1:11434/v1" {
+		t.Errorf("expected base_url 'http://10.0.0.1:11434/v1', got: %s", eff.OpenAIBaseURL)
+	}
+
+	// Seed node-specific override in KV
+	nodeJSON := `{"model":"qwen2.5-coder:1.5b"}`
+	kvStore.Set("agent:config:nodes/test-node", []byte(nodeJSON), 0)
+
+	effNode := engine.resolveEffectiveConfig()
+	if effNode.OpenAIModel != "qwen2.5-coder:1.5b" {
+		t.Errorf("expected node override model 'qwen2.5-coder:1.5b', got: %s", effNode.OpenAIModel)
+	}
+}
+
+func testAgentToolsExecPolicy(t *testing.T, engine *Engine, kvStore *kv.Store) {
+	t.Helper()
+	// Set allowed policy whitelist
+	policyJSON := `["uptime", "df -h", "systemctl status *"]`
+	kvStore.Set("agent:policy:allowed_exec", []byte(policyJSON), 0)
+
+	if err := engine.validateExecPolicy("uptime"); err != nil {
+		t.Errorf("expected 'uptime' to be permitted, got: %v", err)
+	}
+	if err := engine.validateExecPolicy("systemctl status herd"); err != nil {
+		t.Errorf("expected 'systemctl status herd' wildcard to be permitted, got: %v", err)
+	}
+	if err := engine.validateExecPolicy("rm -rf /"); err == nil {
+		t.Errorf("expected 'rm -rf /' to be rejected by policy")
+	}
+
+	// Corrupt policy must fail closed, never fail open.
+	kvStore.Set("agent:policy:allowed_exec", []byte(`["uptime",`), 0)
+	if err := engine.validateExecPolicy("uptime"); err == nil {
+		t.Errorf("expected corrupt policy to deny 'uptime' (fail closed)")
+	}
 }
 
 func TestAgentWebTools(t *testing.T) {

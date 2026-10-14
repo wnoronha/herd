@@ -142,128 +142,156 @@ func executeDNSLookup(ctx context.Context, r *net.Resolver, name, recordType, sr
 
 	switch recordType {
 	case "AUTO", "A", "AAAA":
-		ips, err := r.LookupIPAddr(ctx, name)
-		if err != nil {
-			return nil, fmt.Errorf("dns lookup failed: %w", err)
-		}
-		var records []map[string]any
-		for _, ipa := range ips {
-			family := "A"
-			if ipa.IP.To4() == nil {
-				family = "AAAA"
-			}
-			if recordType == "A" && family != "A" {
-				continue
-			}
-			if recordType == "AAAA" && family != "AAAA" {
-				continue
-			}
-			records = append(records, map[string]any{
-				"type":  family,
-				"value": ipa.IP.String(),
-			})
-		}
-		if len(records) == 0 {
-			return nil, fmt.Errorf("no address records found for %q", name)
-		}
-		out["records"] = records
-		out["record_count"] = len(records)
-		return out, nil
+		return lookupIPRecords(ctx, r, name, recordType, out)
 
 	case "MX":
-		mxs, err := r.LookupMX(ctx, name)
-		if err != nil {
-			return nil, fmt.Errorf("dns lookup failed: %w", err)
-		}
-		var records []map[string]any
-		for _, mx := range mxs {
-			records = append(records, map[string]any{
-				"type":     "MX",
-				"host":     strings.TrimSuffix(mx.Host, "."),
-				"priority": mx.Pref,
-			})
-		}
-		out["records"] = records
-		out["record_count"] = len(records)
-		return out, nil
+		return lookupMXRecords(ctx, r, name, out)
 
 	case "TXT":
-		txts, err := r.LookupTXT(ctx, name)
-		if err != nil {
-			return nil, fmt.Errorf("dns lookup failed: %w", err)
-		}
-		var records []any
-		for _, txt := range txts {
-			records = append(records, map[string]any{"type": "TXT", "value": txt})
-		}
-		out["records"] = records
-		out["record_count"] = len(records)
-		return out, nil
+		return lookupTXTRecords(ctx, r, name, out)
 
 	case "NS":
-		nss, err := r.LookupNS(ctx, name)
-		if err != nil {
-			return nil, fmt.Errorf("dns lookup failed: %w", err)
-		}
-		var records []any
-		for _, ns := range nss {
-			records = append(records, map[string]any{"type": "NS", "value": strings.TrimSuffix(ns.Host, ".")})
-		}
-		out["records"] = records
-		out["record_count"] = len(records)
-		return out, nil
+		return lookupNSRecords(ctx, r, name, out)
 
 	case "CNAME":
-		cname, err := r.LookupCNAME(ctx, name)
-		if err != nil {
-			return nil, fmt.Errorf("dns lookup failed: %w", err)
-		}
-		cname = strings.TrimSuffix(cname, ".")
-		// LookupCNAME never fails: it returns the input when no alias
-		// exists. Report that honestly instead of a phantom record.
-		if strings.EqualFold(cname, strings.TrimSuffix(name, ".")) {
-			return nil, fmt.Errorf("no CNAME record found for %q", name)
-		}
-		out["records"] = []any{map[string]any{"type": "CNAME", "value": cname}}
-		out["record_count"] = 1
-		return out, nil
+		return lookupCNAMERecord(ctx, r, name, out)
 
 	case "PTR":
-		addrs, err := r.LookupAddr(ctx, name)
-		if err != nil {
-			return nil, fmt.Errorf("dns lookup failed: %w", err)
-		}
-		var records []any
-		for _, addr := range addrs {
-			records = append(records, map[string]any{"type": "PTR", "value": strings.TrimSuffix(addr, ".")})
-		}
-		out["records"] = records
-		out["record_count"] = len(records)
-		return out, nil
+		return lookupPTRRecords(ctx, r, name, out)
 
 	case "SRV":
-		_, addrs, err := r.LookupSRV(ctx, srvService, srvProto, name)
-		if err != nil {
-			return nil, fmt.Errorf("dns lookup failed: %w", err)
-		}
-		if len(addrs) == 0 {
-			return nil, fmt.Errorf("no SRV records found for _%s._%s.%s", srvService, srvProto, name)
-		}
-		var records []any
-		for _, srv := range addrs {
-			records = append(records, map[string]any{
-				"type":     "SRV",
-				"target":   strings.TrimSuffix(srv.Target, "."),
-				"port":     srv.Port,
-				"priority": srv.Priority,
-				"weight":   srv.Weight,
-			})
-		}
-		out["records"] = records
-		out["record_count"] = len(records)
-		return out, nil
+		return lookupSRVRecords(ctx, r, name, srvService, srvProto, out)
 
 	default:
 		return nil, fmt.Errorf("unsupported record_type %q (use A, AAAA, MX, TXT, NS, CNAME, PTR, SRV, or AUTO)", recordType)
 	}
+}
+
+func lookupIPRecords(ctx context.Context, r *net.Resolver, name, recordType string, out map[string]any) (map[string]any, error) {
+	ips, err := r.LookupIPAddr(ctx, name)
+	if err != nil {
+		return nil, fmt.Errorf("dns lookup failed: %w", err)
+	}
+	var records []map[string]any
+	for _, ipa := range ips {
+		family := "A"
+		if ipa.IP.To4() == nil {
+			family = "AAAA"
+		}
+		if recordType == "A" && family != "A" {
+			continue
+		}
+		if recordType == "AAAA" && family != "AAAA" {
+			continue
+		}
+		records = append(records, map[string]any{
+			"type":  family,
+			"value": ipa.IP.String(),
+		})
+	}
+	if len(records) == 0 {
+		return nil, fmt.Errorf("no address records found for %q", name)
+	}
+	out["records"] = records
+	out["record_count"] = len(records)
+	return out, nil
+}
+
+func lookupMXRecords(ctx context.Context, r *net.Resolver, name string, out map[string]any) (map[string]any, error) {
+	mxs, err := r.LookupMX(ctx, name)
+	if err != nil {
+		return nil, fmt.Errorf("dns lookup failed: %w", err)
+	}
+	var records []map[string]any
+	for _, mx := range mxs {
+		records = append(records, map[string]any{
+			"type":     "MX",
+			"host":     strings.TrimSuffix(mx.Host, "."),
+			"priority": mx.Pref,
+		})
+	}
+	out["records"] = records
+	out["record_count"] = len(records)
+	return out, nil
+}
+
+func lookupTXTRecords(ctx context.Context, r *net.Resolver, name string, out map[string]any) (map[string]any, error) {
+	txts, err := r.LookupTXT(ctx, name)
+	if err != nil {
+		return nil, fmt.Errorf("dns lookup failed: %w", err)
+	}
+	var records []any
+	for _, txt := range txts {
+		records = append(records, map[string]any{"type": "TXT", "value": txt})
+	}
+	out["records"] = records
+	out["record_count"] = len(records)
+	return out, nil
+}
+
+func lookupNSRecords(ctx context.Context, r *net.Resolver, name string, out map[string]any) (map[string]any, error) {
+	nss, err := r.LookupNS(ctx, name)
+	if err != nil {
+		return nil, fmt.Errorf("dns lookup failed: %w", err)
+	}
+	var records []any
+	for _, ns := range nss {
+		records = append(records, map[string]any{"type": "NS", "value": strings.TrimSuffix(ns.Host, ".")})
+	}
+	out["records"] = records
+	out["record_count"] = len(records)
+	return out, nil
+}
+
+func lookupCNAMERecord(ctx context.Context, r *net.Resolver, name string, out map[string]any) (map[string]any, error) {
+	cname, err := r.LookupCNAME(ctx, name)
+	if err != nil {
+		return nil, fmt.Errorf("dns lookup failed: %w", err)
+	}
+	cname = strings.TrimSuffix(cname, ".")
+	// LookupCNAME never fails: it returns the input when no alias
+	// exists. Report that honestly instead of a phantom record.
+	if strings.EqualFold(cname, strings.TrimSuffix(name, ".")) {
+		return nil, fmt.Errorf("no CNAME record found for %q", name)
+	}
+	out["records"] = []any{map[string]any{"type": "CNAME", "value": cname}}
+	out["record_count"] = 1
+	return out, nil
+}
+
+func lookupPTRRecords(ctx context.Context, r *net.Resolver, name string, out map[string]any) (map[string]any, error) {
+	addrs, err := r.LookupAddr(ctx, name)
+	if err != nil {
+		return nil, fmt.Errorf("dns lookup failed: %w", err)
+	}
+	var records []any
+	for _, addr := range addrs {
+		records = append(records, map[string]any{"type": "PTR", "value": strings.TrimSuffix(addr, ".")})
+	}
+	out["records"] = records
+	out["record_count"] = len(records)
+	return out, nil
+}
+
+func lookupSRVRecords(ctx context.Context, r *net.Resolver, name, service, proto string, out map[string]any) (map[string]any, error) {
+	_, addrs, err := r.LookupSRV(ctx, service, proto, name)
+	if err != nil {
+		return nil, fmt.Errorf("dns lookup failed: %w", err)
+	}
+	if len(addrs) == 0 {
+		return nil, fmt.Errorf("no SRV records found for _%s._%s.%s", service, proto, name)
+	}
+	var records []any
+	for _, srv := range addrs {
+		records = append(records, map[string]any{
+			"type":     "SRV",
+			"target":   strings.TrimSuffix(srv.Target, "."),
+			"port":     srv.Port,
+			"priority": srv.Priority,
+			"weight":   srv.Weight,
+		})
+	}
+	out["records"] = records
+	out["record_count"] = len(records)
+	return out, nil
 }

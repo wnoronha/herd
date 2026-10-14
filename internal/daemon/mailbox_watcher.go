@@ -84,31 +84,8 @@ func (d *Daemon) runAgentInboxWatcher(ctx context.Context) {
 
 // processMailboxEntry parses, deduplicates, executes, and acknowledges an incoming message entry.
 func (d *Daemon) processMailboxEntry(ctx context.Context, entry *kv.Entry) {
-	if entry == nil || entry.Tombstone || entry.IsExpired(time.Now()) {
-		return
-	}
-	if len(entry.Value) == 0 {
-		return
-	}
-
-	var msg mailbox.Message
-	if err := json.Unmarshal(entry.Value, &msg); err != nil {
-		return
-	}
-
-	normTo := mailbox.NormalizeAddress(msg.To)
-	if normTo != d.Config.NodeName && normTo != "*" && normTo != "all" {
-		return
-	}
-
-	// Deduplicate in case of duplicate gossip deliveries
-	if _, loaded := d.processedMsgs.LoadOrStore(msg.ID, true); loaded {
-		return
-	}
-
-	// Do not dispatch replies to reply messages (prevents infinite ping-pong loops)
-	if strings.HasPrefix(msg.Topic, "reply:") || strings.HasPrefix(msg.ID, "reply_") {
-		d.Logger.Named("mailbox").Infof("Received reply for task %s from '%s'", msg.ID, msg.From)
+	msg, ok := d.claimMailboxEntry(entry)
+	if !ok {
 		return
 	}
 
@@ -127,19 +104,12 @@ func (d *Daemon) processMailboxEntry(ctx context.Context, entry *kv.Entry) {
 	execCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
 
-	var role string
-	if strings.HasPrefix(msg.Topic, "task:") {
-		role = strings.TrimPrefix(msg.Topic, "task:")
-	} else if strings.HasPrefix(msg.Topic, "role:") {
-		role = strings.TrimPrefix(msg.Topic, "role:")
-	}
-
 	var resp *agent.PromptResponse
 	var err error
 	if d.AgentEngine != nil {
 		resp, err = d.AgentEngine.ExecutePrompt(execCtx, &agent.PromptRequest{
 			Prompt: taskPrompt,
-			Role:   role,
+			Role:   mailboxRole(msg.Topic),
 		})
 	}
 
@@ -152,6 +122,52 @@ func (d *Daemon) processMailboxEntry(ctx context.Context, entry *kv.Entry) {
 		d.Logger.Named("mailbox").Infof("Task %s completed successfully", msg.ID)
 	}
 
+	d.dispatchMailboxReply(msg, replyContent)
+}
+
+// claimMailboxEntry validates, address-filters, and dedupes a mailbox entry.
+func (d *Daemon) claimMailboxEntry(entry *kv.Entry) (mailbox.Message, bool) {
+	var msg mailbox.Message
+	if entry == nil || entry.Tombstone || entry.IsExpired(time.Now()) {
+		return msg, false
+	}
+	if len(entry.Value) == 0 {
+		return msg, false
+	}
+	if err := json.Unmarshal(entry.Value, &msg); err != nil {
+		return msg, false
+	}
+
+	normTo := mailbox.NormalizeAddress(msg.To)
+	if normTo != d.Config.NodeName && normTo != "*" && normTo != "all" {
+		return msg, false
+	}
+
+	// Deduplicate in case of duplicate gossip deliveries
+	if _, loaded := d.processedMsgs.LoadOrStore(msg.ID, true); loaded {
+		return msg, false
+	}
+
+	// Do not dispatch replies to reply messages (prevents infinite ping-pong loops)
+	if strings.HasPrefix(msg.Topic, "reply:") || strings.HasPrefix(msg.ID, "reply_") {
+		d.Logger.Named("mailbox").Infof("Received reply for task %s from '%s'", msg.ID, msg.From)
+		return msg, false
+	}
+	return msg, true
+}
+
+// mailboxRole derives the agent role from a task topic prefix.
+func mailboxRole(topic string) string {
+	if strings.HasPrefix(topic, "task:") {
+		return strings.TrimPrefix(topic, "task:")
+	} else if strings.HasPrefix(topic, "role:") {
+		return strings.TrimPrefix(topic, "role:")
+	}
+	return ""
+}
+
+// dispatchMailboxReply routes the execution result back to the sender.
+func (d *Daemon) dispatchMailboxReply(msg mailbox.Message, replyContent string) {
 	// Symmetric reply routing: deliver reply directly to sender's mailbox
 	reply := msg.CreateReply(d.Config.NodeName, replyContent)
 

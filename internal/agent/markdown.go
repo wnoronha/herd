@@ -124,7 +124,7 @@ func ParseAgentsMarkdown(data []byte) ([]*AgentDefinition, error) {
 
 // ParseAgentMarkdownFile loads and parses a single agent from a file, inferring name/role if omitted.
 func ParseAgentMarkdownFile(filePath string) (*AgentDefinition, error) {
-	data, err := os.ReadFile(filePath)
+	data, err := os.ReadFile(filePath) //nolint:gosec // paths come from workspace directory traversal or explicit user flags
 	if err != nil {
 		return nil, fmt.Errorf("failed to read agent file %s: %w", filePath, err)
 	}
@@ -140,7 +140,7 @@ func ParseAgentMarkdownFile(filePath string) (*AgentDefinition, error) {
 
 // ParseAgentsMarkdownFile loads one or more agents from a file.
 func ParseAgentsMarkdownFile(filePath string) ([]*AgentDefinition, error) {
-	data, err := os.ReadFile(filePath)
+	data, err := os.ReadFile(filePath) //nolint:gosec // paths come from workspace directory traversal or explicit user flags
 	if err != nil {
 		return nil, fmt.Errorf("failed to read agent file %s: %w", filePath, err)
 	}
@@ -179,7 +179,7 @@ func ParseAgentsYAML(data []byte) ([]*AgentDefinition, error) {
 
 // ParseAgentsYAMLFile loads one or more agents from a YAML file.
 func ParseAgentsYAMLFile(filePath string) ([]*AgentDefinition, error) {
-	data, err := os.ReadFile(filePath)
+	data, err := os.ReadFile(filePath) //nolint:gosec // paths come from workspace directory traversal or explicit user flags
 	if err != nil {
 		return nil, fmt.Errorf("failed to read agent YAML file %s: %w", filePath, err)
 	}
@@ -346,11 +346,11 @@ func EnsureDefaultAgentsFile(targetDir string, force ...bool) (string, bool, err
 		}
 	}
 
-	if err := os.MkdirAll(targetDir, 0755); err != nil {
+	if err := os.MkdirAll(targetDir, 0755); err != nil { //nolint:gosec // standard agents-dir permissions for scaffolding
 		return "", false, fmt.Errorf("failed to create agents directory %s: %w", targetDir, err)
 	}
 
-	if err := os.WriteFile(targetFile, []byte(DefaultAgentsTemplate), 0644); err != nil {
+	if err := os.WriteFile(targetFile, []byte(DefaultAgentsTemplate), 0644); err != nil { //nolint:gosec // AGENTS.md scaffold must be readable by editors and agents
 		return "", false, fmt.Errorf("failed to write starter AGENTS.md to %s: %w", targetFile, err)
 	}
 

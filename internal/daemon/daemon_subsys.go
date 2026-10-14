@@ -234,23 +234,7 @@ func (d *Daemon) CopyFile(ctx context.Context, req *ipc.CPRequest) (*ipc.CPRespo
 
 	srcTarget := subsys.ParseCPTarget(req.Source)
 	dstTarget := subsys.ParseCPTarget(req.Destination)
-
-	if req.TargetNode != "" && !srcTarget.IsRemote && !dstTarget.IsRemote {
-		if req.IsDownload {
-			srcTarget.Node = req.TargetNode
-			srcTarget.IsRemote = true
-		} else {
-			dstTarget.Node = req.TargetNode
-			dstTarget.IsRemote = true
-		}
-	}
-
-	if srcTarget.Node == d.Config.NodeName {
-		srcTarget.IsRemote = false
-	}
-	if dstTarget.Node == d.Config.NodeName {
-		dstTarget.IsRemote = false
-	}
+	srcTarget, dstTarget = resolveCPNodes(req, srcTarget, dstTarget, d.Config.NodeName)
 
 	var transferred int64
 	var err error
@@ -262,24 +246,8 @@ func (d *Daemon) CopyFile(ctx context.Context, req *ipc.CPRequest) (*ipc.CPRespo
 		transferred, err = d.uploadToNode(ctx, srcTarget.Path, dstTarget.Node, dstTarget.Path)
 	case srcTarget.IsRemote && !dstTarget.IsRemote:
 		transferred, err = d.downloadFromNode(ctx, srcTarget.Node, srcTarget.Path, dstTarget.Path)
-	case srcTarget.IsRemote && dstTarget.IsRemote:
-		// Transfer between two remote nodes using a local temporary buffer
-		tmpFile, tErr := os.CreateTemp("", "herd-cp-*")
-		if tErr != nil {
-			return nil, fmt.Errorf("failed to create temporary file for transfer: %w", tErr)
-		}
-		tmpPath := tmpFile.Name()
-		_ = tmpFile.Close()
-		defer func() { _ = os.Remove(tmpPath) }()
-
-		_, err = d.downloadFromNode(ctx, srcTarget.Node, srcTarget.Path, tmpPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to download from %s: %w", srcTarget.Node, err)
-		}
-		transferred, err = d.uploadToNode(ctx, tmpPath, dstTarget.Node, dstTarget.Path)
-		if err != nil {
-			return nil, fmt.Errorf("failed to upload to %s: %w", dstTarget.Node, err)
-		}
+	default:
+		transferred, err = d.relayRemoteCopy(ctx, srcTarget, dstTarget)
 	}
 
 	if err != nil {
@@ -290,6 +258,47 @@ func (d *Daemon) CopyFile(ctx context.Context, req *ipc.CPRequest) (*ipc.CPRespo
 		BytesTransferred: transferred,
 		Message:          fmt.Sprintf("Transferred %s to %s (%d bytes)", req.Source, req.Destination, transferred),
 	}, nil
+}
+
+// resolveCPNodes applies TargetNode routing and local-node normalization.
+func resolveCPNodes(req *ipc.CPRequest, srcTarget, dstTarget subsys.CPTarget, nodeName string) (subsys.CPTarget, subsys.CPTarget) {
+	if req.TargetNode != "" && !srcTarget.IsRemote && !dstTarget.IsRemote {
+		if req.IsDownload {
+			srcTarget.Node = req.TargetNode
+			srcTarget.IsRemote = true
+		} else {
+			dstTarget.Node = req.TargetNode
+			dstTarget.IsRemote = true
+		}
+	}
+
+	if srcTarget.Node == nodeName {
+		srcTarget.IsRemote = false
+	}
+	if dstTarget.Node == nodeName {
+		dstTarget.IsRemote = false
+	}
+	return srcTarget, dstTarget
+}
+
+// relayRemoteCopy transfers between two remote nodes via a local temp file.
+func (d *Daemon) relayRemoteCopy(ctx context.Context, srcTarget, dstTarget subsys.CPTarget) (int64, error) {
+	tmpFile, err := os.CreateTemp("", "herd-cp-*")
+	if err != nil {
+		return 0, fmt.Errorf("failed to create temporary file for transfer: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	_ = tmpFile.Close()
+	defer func() { _ = os.Remove(tmpPath) }()
+
+	if _, err := d.downloadFromNode(ctx, srcTarget.Node, srcTarget.Path, tmpPath); err != nil {
+		return 0, fmt.Errorf("failed to download from %s: %w", srcTarget.Node, err)
+	}
+	transferred, err := d.uploadToNode(ctx, tmpPath, dstTarget.Node, dstTarget.Path)
+	if err != nil {
+		return 0, fmt.Errorf("failed to upload to %s: %w", dstTarget.Node, err)
+	}
+	return transferred, nil
 }
 
 func (d *Daemon) dialNodeFileStream(ctx context.Context, targetNode string) (net.Conn, error) {
