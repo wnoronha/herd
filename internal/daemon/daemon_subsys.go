@@ -180,8 +180,8 @@ func (d *Daemon) ExecuteCommand(ctx context.Context, req *ipc.ExecRequest) (*ipc
 
 // ForwardPort implements ipc.DaemonHandler.
 func (d *Daemon) ForwardPort(ctx context.Context, req *ipc.ForwardRequest) (*ipc.ForwardResponse, error) {
-	if req == nil || req.LocalPort <= 0 || req.TargetPort <= 0 || req.TargetNode == "" {
-		return nil, errors.New("invalid port forwarding parameters")
+	if req == nil || !validForwardPort(req.LocalPort) || !validForwardPort(req.TargetPort) || req.TargetNode == "" {
+		return nil, errors.New("invalid port forwarding parameters: ports must be 1-65535 and target node required")
 	}
 
 	listenAddr := fmt.Sprintf("127.0.0.1:%d", req.LocalPort)
@@ -205,12 +205,18 @@ func (d *Daemon) ForwardPort(ctx context.Context, req *ipc.ForwardRequest) (*ipc
 		targetAddr = net.JoinHostPort(req.TargetNode, strconv.Itoa(req.TargetPort))
 	}
 
+	// Detached owned lifetime: the accept-loop must not inherit the RPC
+	// handler ctx (a future per-RPC timeout would otherwise kill all
+	// tunnels). The cancel is owned by the registry and runs on
+	// replace/StopAll.
+	fwdCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	pf := subsys.NewPortForwarder(listenAddr, targetAddr, nil)
-	if err := pf.Start(ctx); err != nil {
+	if err := pf.Start(fwdCtx); err != nil {
+		cancel()
 		return nil, fmt.Errorf("failed to start port forwarder on %s: %w", listenAddr, err)
 	}
 
-	if old := d.forwarderRegistry.Set(listenAddr, pf); old != nil {
+	if old := d.forwarderRegistry.Set(listenAddr, pf, cancel); old != nil {
 		_ = old.Stop()
 	}
 

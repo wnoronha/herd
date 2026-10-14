@@ -274,6 +274,9 @@ func (d *Daemon) Stop() error {
 	if registry != nil {
 		registry.StopAll()
 	}
+	// Agent-owned forward tunnels live in a process-global registry;
+	// stop them too so listeners don't leak past daemon shutdown.
+	agent.StopAllClusterForwards()
 
 	// 5. Shutdown Tailcat Transport
 	if tr != nil {
