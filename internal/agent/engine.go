@@ -169,20 +169,13 @@ func (e *Engine) resolveEffectiveConfig() Config {
 	return effective
 }
 
-// ExecutePrompt runs a task prompt through the agent reasoning and tool loop.
-func (e *Engine) ExecutePrompt(ctx context.Context, req *PromptRequest) (*PromptResponse, error) {
-	if req == nil || req.Prompt == "" {
-		return nil, errors.New("prompt cannot be empty")
-	}
-
-	start := time.Now()
+func (e *Engine) effectiveConfigForRequest(req *PromptRequest) (Config, []string, error) {
 	effCfg := e.resolveEffectiveConfig()
-
 	var allowedTools []string
 	if req.Role != "" {
 		agentDef, ok := e.GetAgent(req.Role)
 		if !ok {
-			return nil, fmt.Errorf("agent role or name '%s' not found", req.Role)
+			return effCfg, nil, fmt.Errorf("agent role or name '%s' not found", req.Role)
 		}
 		if agentDef.Model != "" {
 			effCfg.Model = agentDef.Model
@@ -208,7 +201,6 @@ func (e *Engine) ExecutePrompt(ctx context.Context, req *PromptRequest) (*Prompt
 			allowedTools = agentDef.AllowedTools
 		}
 	}
-
 	if req.Model != "" {
 		effCfg.Model = req.Model
 		effCfg.OpenAIModel = req.Model
@@ -216,9 +208,22 @@ func (e *Engine) ExecutePrompt(ctx context.Context, req *PromptRequest) (*Prompt
 	if req.Provider != "" {
 		effCfg.Provider = req.Provider
 	}
+	return effCfg, allowedTools, nil
+}
+
+// ExecutePrompt runs a task prompt through the agent reasoning and tool loop.
+func (e *Engine) ExecutePrompt(ctx context.Context, req *PromptRequest) (*PromptResponse, error) {
+	if req == nil || req.Prompt == "" {
+		return nil, errors.New("prompt cannot be empty")
+	}
+
+	start := time.Now()
+	effCfg, allowedTools, err := e.effectiveConfigForRequest(req)
+	if err != nil {
+		return nil, err
+	}
 
 	var resp *PromptResponse
-	var err error
 
 	// 1. Explicit Gemini Provider or Gemini API key
 	if effCfg.Provider == "gemini" || (effCfg.APIKey != "" && effCfg.Provider != "openai") {
@@ -238,7 +243,7 @@ func (e *Engine) ExecutePrompt(ctx context.Context, req *PromptRequest) (*Prompt
 	var ollamaHint string
 	if resp == nil && err == nil {
 		// 3. Auto-probe local Ollama (OpenAI-compatible /v1 with tools, then native /api/chat)
-		resp, err, ollamaHint = e.tryAutoOllamaBackends(ctx, req, effCfg, allowedTools, start)
+		resp, ollamaHint, err = e.tryAutoOllamaBackends(ctx, req, effCfg, allowedTools, start)
 		if err != nil {
 			return nil, err
 		}
