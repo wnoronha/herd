@@ -18,7 +18,7 @@ permissions:
 jobs:
   tidy:
     name: go mod tidy check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
