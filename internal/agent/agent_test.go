@@ -211,6 +211,12 @@ func TestAgentTools(t *testing.T) {
 		if err := engine.validateExecPolicy("rm -rf /"); err == nil {
 			t.Errorf("expected 'rm -rf /' to be rejected by policy")
 		}
+
+		// Corrupt policy must fail closed, never fail open.
+		kvStore.Set("agent:policy:allowed_exec", []byte(`["uptime",`), 0)
+		if err := engine.validateExecPolicy("uptime"); err == nil {
+			t.Errorf("expected corrupt policy to deny 'uptime' (fail closed)")
+		}
 	})
 }
 

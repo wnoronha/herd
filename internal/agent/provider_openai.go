@@ -233,7 +233,8 @@ func (e *Engine) validateExecPolicy(command string) error {
 
 	var allowedList []string
 	if err := json.Unmarshal(entry.Value, &allowedList); err != nil {
-		return nil
+		// Fail closed: a corrupt policy must not silently allow everything.
+		return fmt.Errorf("invalid cluster policy (agent:policy:allowed_exec): %v", err)
 	}
 	if len(allowedList) == 0 {
 		return nil

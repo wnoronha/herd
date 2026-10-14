@@ -19,7 +19,7 @@ func (e *Engine) executeDeterministicFallback(ctx context.Context, req *PromptRe
 		}
 	}
 	if tool, ok := toolsToUse["cluster_exec"]; ok {
-		if tc, resp, handled := tryFallbackClusterExec(ctx, tool, lowerPrompt); handled {
+		if tc, resp, handled := e.tryFallbackClusterExec(ctx, tool, lowerPrompt); handled {
 			return e.buildFallbackResponse(resp, tc, start), nil
 		}
 	}
@@ -86,7 +86,7 @@ func tryFallbackClusterRoster(ctx context.Context, tool ToolDefinition, lowerPro
 	return tc, resp, true
 }
 
-func tryFallbackClusterExec(ctx context.Context, tool ToolDefinition, lowerPrompt string) (*ToolCall, string, bool) {
+func (e *Engine) tryFallbackClusterExec(ctx context.Context, tool ToolDefinition, lowerPrompt string) (*ToolCall, string, bool) {
 	if !strings.Contains(lowerPrompt, "uptime") && !strings.Contains(lowerPrompt, "uname") && !strings.Contains(lowerPrompt, "exec") {
 		return nil, "", false
 	}
@@ -94,6 +94,10 @@ func tryFallbackClusterExec(ctx context.Context, tool ToolDefinition, lowerPromp
 	cmd := "uptime"
 	if strings.Contains(lowerPrompt, "uname") {
 		cmd = "uname -a"
+	}
+	// Enforce the same cluster policy as the LLM tool loop.
+	if policyErr := e.validateExecPolicy(cmd); policyErr != nil {
+		return nil, "", false
 	}
 	res, err := tool.Handler(ctx, map[string]any{"target": target, "command": cmd})
 	if err != nil {
