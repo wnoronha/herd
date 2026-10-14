@@ -18,8 +18,8 @@ import (
 	"github.com/hashicorp/memberlist"
 	tcat "github.com/tailscale/tailcat"
 	"go4.org/mem"
-	"herd/internal/identity"
-	"herd/internal/logger"
+	"github.com/wnoronha/herd/internal/identity"
+	"github.com/wnoronha/herd/internal/logger"
 	"tailscale.com/types/key"
 	tslogger "tailscale.com/types/logger"
 )
@@ -360,8 +360,13 @@ func (t *Transport) sendPacketStream(addr string, b []byte) (time.Time, error) {
 
 		entry.mu.Lock()
 		_ = entry.conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
+		frameLen, ferr := uint32FrameLen(len(b))
+		if ferr != nil {
+			entry.mu.Unlock()
+			return time.Now(), ferr
+		}
 		frame := make([]byte, 4+len(b))
-		binary.BigEndian.PutUint32(frame[:4], uint32(len(b)))
+		binary.BigEndian.PutUint32(frame[:4], frameLen)
 		copy(frame[4:], b)
 
 		_, err = entry.conn.Write(frame)
@@ -564,10 +569,7 @@ func (t *Transport) DialStream(addr string, streamType byte, timeout time.Durati
 	var rawConn net.Conn
 	var dialErr error
 
-	targetPort := uint16(t.actualPort)
-	if targetPort == 0 {
-		targetPort = 7946
-	}
+	targetPort := uint16Port(t.actualPort)
 	tcEndpoint := addr
 	if h, pStr, err := splitHostPortSafe(addr); err == nil && pStr != "" {
 		if p, err := strconv.ParseUint(pStr, 10, 16); err == nil && p > 0 {

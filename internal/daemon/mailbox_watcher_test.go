@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"herd/internal/agent"
-	"herd/internal/config"
-	"herd/internal/identity"
-	"herd/internal/kv"
-	"herd/internal/logger"
-	"herd/internal/mailbox"
+	"github.com/wnoronha/herd/internal/agent"
+	"github.com/wnoronha/herd/internal/config"
+	"github.com/wnoronha/herd/internal/identity"
+	"github.com/wnoronha/herd/internal/kv"
+	"github.com/wnoronha/herd/internal/logger"
+	"github.com/wnoronha/herd/internal/mailbox"
 )
 
 func newTestDaemonWithMocks(t *testing.T, nodeName string) (*Daemon, *kv.Store) {

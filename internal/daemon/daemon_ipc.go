@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"herd/internal/agent"
-	"herd/internal/ipc"
-	"herd/internal/mailbox"
-	"herd/internal/transport/tailcat"
+	"github.com/wnoronha/herd/internal/agent"
+	"github.com/wnoronha/herd/internal/ipc"
+	"github.com/wnoronha/herd/internal/mailbox"
+	"github.com/wnoronha/herd/internal/transport/tailcat"
 )
 
 // StopResponse is an alias for ipc.StopResponse.

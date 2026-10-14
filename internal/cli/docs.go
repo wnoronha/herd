@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"herd/docs"
+	"github.com/wnoronha/herd/docs"
 )
 
 // RunDocs handles the 'herd docs' subcommand.

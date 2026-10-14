@@ -12,7 +12,7 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"herd/internal/ipc"
+	"github.com/wnoronha/herd/internal/ipc"
 )
 
 // RunMail executes the 'herd mail' subcommands: send, list, read, watch.

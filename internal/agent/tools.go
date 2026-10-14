@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"herd/internal/ipc"
-	"herd/internal/kv"
-	"herd/internal/mailbox"
-	"herd/internal/roster"
+	"github.com/wnoronha/herd/internal/ipc"
+	"github.com/wnoronha/herd/internal/kv"
+	"github.com/wnoronha/herd/internal/mailbox"
+	"github.com/wnoronha/herd/internal/roster"
 )
 
 // ClusterContext provides access to daemon cluster primitives for tool execution.

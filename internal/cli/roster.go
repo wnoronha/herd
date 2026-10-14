@@ -10,8 +10,8 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"herd/internal/config"
-	"herd/internal/ipc"
+	"github.com/wnoronha/herd/internal/config"
+	"github.com/wnoronha/herd/internal/ipc"
 )
 
 // RunRoster executes the 'herd roster' command.

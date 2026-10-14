@@ -100,6 +100,39 @@ Herd adheres strictly to the [XDG Base Directory Specification](https://specific
 | Data Type | Path | Purpose | Environment Override |
 |---|---|---|---|
 | **Config** | `~/.config/herd/config.json` | Persistent configuration | `HERD_CONFIG_DIR`, `HERD_CONFIG_FILE` |
-| **Identity & Data** | `~/.local/share/herd/identity.key` | Curve25519 private keypair | `HERD_DATA_DIR` |
+| **Identity & Data** | `~/.local/share/herd/<node>/identity.json` | Curve25519 keypair, node PSK | `HERD_DATA_DIR` |
 | **IPC Runtime** | `$XDG_RUNTIME_DIR/herd-<node>.sock` | Daemon control socket | `HERD_SOCKET_PATH`, `HERD_RUNTIME_DIR` |
 | **State** | `~/.local/state/herd/` | Logs and state snapshots | `HERD_STATE_DIR` |
+
+---
+
+## 4. Trust Model & Security Boundaries
+
+Herd is designed as a **cooperative cluster** for operators who control every node. It is not a multi-tenant control plane.
+
+### 4.1 Local vs mesh trust
+
+| Boundary | Who is trusted | Enforcement |
+|---|---|---|
+| **Local IPC** | Processes on the same host that can open the Unix socket | Socket path under `$XDG_RUNTIME_DIR`, file mode `0600` |
+| **Mesh (P2P)** | Any peer that completes transport crypto and SWIM membership | No RBAC, join tokens, or exec allowlists today |
+
+CLI commands (`herd exec`, `herd cp`, `herd kv`, etc.) talk to the local daemon over IPC. **Remote effects** (running a shell on another node, copying files, writing KV) are initiated by the local daemon opening encrypted streams to peer nodes. A node that has joined the mesh can request `StreamTypeExec` on peers unless you network-isolate untrusted hosts.
+
+### 4.2 Cluster join
+
+Joining requires a reachable **bootstrap address** (IP:port or Tailcat bootstrap string from `herd status`). There is no separate join secret in roster metadata. Treat bootstrap addresses like root credentials: share only within your admin boundary.
+
+### 4.3 Cryptographic layers
+
+1. **Per-node identity** — Each node persists a Curve25519 keypair and a random **pre-shared key (PSK)** in `identity.json` (`0600`). Nodes do not automatically exchange PSKs on join; production clusters rely primarily on **mutual ECDH** (sender public key in each packet/stream handshake).
+2. **Cluster discovery key** — A fixed fallback key derived from `herd-mesh-cluster-discovery-v1` encrypts some discovery-era packets when ECDH has not yet succeeded. All Herd binaries share this fallback; it is a convenience for zero-config labs, not a per-cluster secret.
+3. **WireGuard / Tailcat** — Overlay tunnels add another layer for magicsock/DERP paths (see [protocol.md](protocol.md)).
+
+Integration coverage: [`test/cluster_integration_test.go`](../test/cluster_integration_test.go) includes `TestMultiNodeClusterQuickstartJoin`, which joins nodes **without** manually aligning PSKs (matching the README quickstart).
+
+### 4.4 Operational guidance
+
+- Run Herd only on hosts and networks you trust end-to-end.
+- Do not expose gossip/bind ports to the public Internet without additional firewall policy.
+- For stricter deployments, plan for join secrets, exec policy, and per-cluster PSK distribution (not implemented in the default build).

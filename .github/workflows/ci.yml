@@ -51,5 +51,13 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Build binary
+        run: go build -o bin/herd ./cmd/herd
+
+      - name: CLI smoke test
+        run: |
+          ./bin/herd help
+          ./bin/herd daemon -h
+
       - name: Run test suite
         run: go test -v -race ./...

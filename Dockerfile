@@ -27,4 +27,4 @@ USER herd
 WORKDIR /home/herd
 
 ENTRYPOINT ["/usr/local/bin/herd"]
-CMD ["daemon", "run"]
+CMD ["daemon"]

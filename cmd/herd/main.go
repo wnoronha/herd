@@ -10,10 +10,10 @@ import (
 	"syscall"
 
 	"go.uber.org/zap"
-	"herd/internal/cli"
-	"herd/internal/config"
-	"herd/internal/daemon"
-	"herd/internal/logger"
+	"github.com/wnoronha/herd/internal/cli"
+	"github.com/wnoronha/herd/internal/config"
+	"github.com/wnoronha/herd/internal/daemon"
+	"github.com/wnoronha/herd/internal/logger"
 )
 
 func main() {

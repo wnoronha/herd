@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"herd/internal/config"
-	"herd/internal/ipc"
+	"github.com/wnoronha/herd/internal/config"
+	"github.com/wnoronha/herd/internal/ipc"
 )
 
 // RunJoin executes the 'herd join <address>' command.

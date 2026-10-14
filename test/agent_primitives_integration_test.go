@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"herd/internal/agent"
-	"herd/internal/identity"
-	"herd/internal/testutil"
+	"github.com/wnoronha/herd/internal/agent"
+	"github.com/wnoronha/herd/internal/identity"
+	"github.com/wnoronha/herd/internal/testutil"
 )
 
 func TestAgentPrimitivesEndToEnd(t *testing.T) {

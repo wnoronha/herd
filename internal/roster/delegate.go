@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/memberlist"
-	"herd/internal/identity"
+	"github.com/wnoronha/herd/internal/identity"
 )
 
 // CustomDelegate allows external subsystems (such as KV store) to hook into memberlist delegate calls.

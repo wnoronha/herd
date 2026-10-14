@@ -1,4 +1,4 @@
-module herd
+module github.com/wnoronha/herd
 
 go 1.27.1
 

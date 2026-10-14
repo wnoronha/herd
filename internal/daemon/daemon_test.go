@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"herd/internal/config"
-	"herd/internal/ipc"
-	"herd/internal/logger"
-	"herd/internal/mailbox"
+	"github.com/wnoronha/herd/internal/config"
+	"github.com/wnoronha/herd/internal/ipc"
+	"github.com/wnoronha/herd/internal/logger"
+	"github.com/wnoronha/herd/internal/mailbox"
 )
 
 func init() {

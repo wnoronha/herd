@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/hashicorp/memberlist"
-	"herd/internal/identity"
-	"herd/internal/kv"
-	"herd/internal/roster"
-	"herd/internal/transport/tailcat"
+	"github.com/wnoronha/herd/internal/identity"
+	"github.com/wnoronha/herd/internal/kv"
+	"github.com/wnoronha/herd/internal/roster"
+	"github.com/wnoronha/herd/internal/transport/tailcat"
 )
 
 type clusterKVNode struct {

@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"herd/internal/identity"
+	"github.com/wnoronha/herd/internal/identity"
 )
 
 // secureConn wraps a net.Conn with ChaCha20-Poly1305 framed encryption.
@@ -83,13 +83,16 @@ func (c *secureConn) Write(b []byte) (int, error) {
 	}
 
 	ciphertext := c.aead.Seal(nil, nonce, b, nil)
+	payloadLen, err := uint32FrameLen(NonceSize + len(ciphertext))
+	if err != nil {
+		return 0, err
+	}
 	frame := make([]byte, 4+NonceSize+len(ciphertext))
-	binary.BigEndian.PutUint32(frame[:4], uint32(NonceSize+len(ciphertext)))
+	binary.BigEndian.PutUint32(frame[:4], payloadLen)
 	copy(frame[4:4+NonceSize], nonce)
 	copy(frame[4+NonceSize:], ciphertext)
 
-	_, err := c.Conn.Write(frame)
-	if err != nil {
+	if _, err := c.Conn.Write(frame); err != nil {
 		return 0, err
 	}
 	return len(b), nil

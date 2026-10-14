@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"herd/internal/mailbox"
+	"github.com/wnoronha/herd/internal/mailbox"
 )
 
 type mockDaemonHandler struct {

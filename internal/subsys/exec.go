@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"herd/internal/roster"
+	"github.com/wnoronha/herd/internal/roster"
 )
 
 // ExecRequest specifies command execution parameters across nodes.

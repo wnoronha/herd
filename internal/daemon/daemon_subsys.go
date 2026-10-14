@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"herd/internal/agent"
-	"herd/internal/ipc"
-	"herd/internal/subsys"
-	"herd/internal/transport/tailcat"
+	"github.com/wnoronha/herd/internal/agent"
+	"github.com/wnoronha/herd/internal/ipc"
+	"github.com/wnoronha/herd/internal/subsys"
+	"github.com/wnoronha/herd/internal/transport/tailcat"
 )
 
 // handleExecStream handles an incoming StreamTypeExec stream for remote command execution.
@@ -29,7 +29,11 @@ func (d *Daemon) handleExecStream(conn net.Conn) {
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	res := subsys.ExecuteLocal(context.Background(), d.Config.NodeName, req.Command, req.Args, timeout)
+	execCtx := d.runCtx
+	if execCtx == nil {
+		execCtx = context.Background()
+	}
+	res := subsys.ExecuteLocal(execCtx, d.Config.NodeName, req.Command, req.Args, timeout)
 	enc := json.NewEncoder(conn)
 	_ = enc.Encode(res)
 }
@@ -42,7 +46,11 @@ func (d *Daemon) handleAgentStream(conn net.Conn) {
 	if err := dec.Decode(&req); err != nil {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	parent := d.runCtx
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(parent, 3*time.Minute)
 	defer cancel()
 
 	var resp *agent.PromptResponse
@@ -198,7 +206,7 @@ func (d *Daemon) ForwardPort(ctx context.Context, req *ipc.ForwardRequest) (*ipc
 	}
 
 	pf := subsys.NewPortForwarder(listenAddr, targetAddr, nil)
-	if err := pf.Start(context.Background()); err != nil {
+	if err := pf.Start(ctx); err != nil {
 		return nil, fmt.Errorf("failed to start port forwarder on %s: %w", listenAddr, err)
 	}
 

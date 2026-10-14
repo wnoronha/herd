@@ -18,6 +18,7 @@ type Server struct {
 	socketPath string
 	handler    DaemonHandler
 	listener   net.Listener
+	requestCtx context.Context
 	mu         sync.Mutex
 	closed     atomic.Bool
 	wg         sync.WaitGroup
@@ -28,6 +29,14 @@ func NewServer(socketPath string, handler DaemonHandler) *Server {
 	return &Server{
 		socketPath: socketPath,
 		handler:    handler,
+		requestCtx: context.Background(),
+	}
+}
+
+// SetRequestContext configures the context passed to daemon IPC handlers.
+func (s *Server) SetRequestContext(ctx context.Context) {
+	if ctx != nil {
+		s.requestCtx = ctx
 	}
 }
 
@@ -105,7 +114,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 			continue
 		}
 
-		resp := s.dispatch(context.Background(), req)
+		resp := s.dispatch(s.requestCtx, req)
 		s.writeResponse(writer, resp)
 	}
 }

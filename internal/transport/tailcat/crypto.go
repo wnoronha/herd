@@ -9,7 +9,7 @@ import (
 
 	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/curve25519"
-	"herd/internal/identity"
+	"github.com/wnoronha/herd/internal/identity"
 )
 
 const (

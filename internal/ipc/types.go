@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"herd/internal/mailbox"
+	"github.com/wnoronha/herd/internal/mailbox"
 )
 
 // Request is the generic IPC request wrapper.

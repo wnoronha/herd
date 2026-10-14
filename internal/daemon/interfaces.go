@@ -5,9 +5,9 @@ import (
 	"net"
 	"time"
 
-	"herd/internal/agent"
-	"herd/internal/kv"
-	"herd/internal/roster"
+	"github.com/wnoronha/herd/internal/agent"
+	"github.com/wnoronha/herd/internal/kv"
+	"github.com/wnoronha/herd/internal/roster"
 )
 
 // KVStorage abstracts distributed key-value storage operations.

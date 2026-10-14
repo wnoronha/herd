@@ -11,15 +11,15 @@ import (
 	"time"
 
 	"github.com/hashicorp/memberlist"
-	"herd/internal/agent"
-	"herd/internal/config"
-	"herd/internal/identity"
-	"herd/internal/ipc"
-	"herd/internal/kv"
-	"herd/internal/logger"
-	"herd/internal/roster"
-	"herd/internal/subsys"
-	"herd/internal/transport/tailcat"
+	"github.com/wnoronha/herd/internal/agent"
+	"github.com/wnoronha/herd/internal/config"
+	"github.com/wnoronha/herd/internal/identity"
+	"github.com/wnoronha/herd/internal/ipc"
+	"github.com/wnoronha/herd/internal/kv"
+	"github.com/wnoronha/herd/internal/logger"
+	"github.com/wnoronha/herd/internal/roster"
+	"github.com/wnoronha/herd/internal/subsys"
+	"github.com/wnoronha/herd/internal/transport/tailcat"
 )
 
 // Daemon coordinates the node identity, Tailcat transport, Memberlist gossip, and IPC server.
@@ -36,7 +36,8 @@ type Daemon struct {
 	AgentEngine   *agent.Engine
 	StartTime     time.Time
 	Logger        logger.Logger
-	agentCancel   context.CancelFunc
+	runCtx        context.Context
+	runCancel     context.CancelFunc
 	agentWg       sync.WaitGroup
 	processedMsgs sync.Map
 	forwarders    map[string]*subsys.PortForwarder
@@ -87,6 +88,8 @@ func New(cfg *config.Config, log logger.Logger) (*Daemon, error) {
 func (d *Daemon) Start(ctx context.Context) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+
+	d.runCtx, d.runCancel = context.WithCancel(ctx)
 
 	// 1. Initialize Tailcat Transport
 	tr, err := tailcat.NewTransport(tailcat.Config{
@@ -163,13 +166,12 @@ func (d *Daemon) Start(ctx context.Context) error {
 	}
 
 	d.AgentEngine = agent.NewEngine(agent.Config{NodeName: d.Config.NodeName}, d, agentsDir)
-	actx, acancel := context.WithCancel(ctx)
-	d.agentCancel = acancel
 	d.agentWg.Add(1)
-	go d.runAgentInboxWatcher(actx)
+	go d.runAgentInboxWatcher(d.runCtx)
 
 	// 5. Start IPC Server
 	d.IPCServer = ipc.NewServer(d.Config.SocketPath, d)
+	d.IPCServer.SetRequestContext(d.runCtx)
 	if err := d.IPCServer.Start(); err != nil {
 		_ = ml.Shutdown()
 		_ = tr.Shutdown()
@@ -183,7 +185,7 @@ func (d *Daemon) Start(ctx context.Context) error {
 	if d.Config.JoinAddr != "" {
 		d.Logger.Infof("Joining seed peer %s...", d.Config.JoinAddr)
 		go func(addr string) {
-			_, joinErr := d.JoinNode(context.Background(), addr)
+			_, joinErr := d.JoinNode(d.runCtx, addr)
 			if joinErr != nil {
 				d.Logger.Warnf("Warning: failed to join seed %s: %v", addr, joinErr)
 			} else {
@@ -209,9 +211,9 @@ func (d *Daemon) Stop() error {
 
 	var errs []error
 
-	// 1. Stop Agent Inbox Watcher
-	if d.agentCancel != nil {
-		d.agentCancel()
+	// 1. Stop Agent Inbox Watcher and cancel in-flight IPC/stream work
+	if d.runCancel != nil {
+		d.runCancel()
 	}
 	d.agentWg.Wait()
 

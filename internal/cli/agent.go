@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"herd/internal/agent"
-	"herd/internal/config"
-	"herd/internal/ipc"
+	"github.com/wnoronha/herd/internal/agent"
+	"github.com/wnoronha/herd/internal/config"
+	"github.com/wnoronha/herd/internal/ipc"
 )
 
 // RunAgent handles the "agent" CLI command and its subcommands.

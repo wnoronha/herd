@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"herd/internal/config"
-	"herd/internal/daemon"
-	"herd/internal/identity"
-	"herd/internal/ipc"
-	"herd/internal/logger"
-	"herd/internal/testutil"
+	"github.com/wnoronha/herd/internal/config"
+	"github.com/wnoronha/herd/internal/daemon"
+	"github.com/wnoronha/herd/internal/identity"
+	"github.com/wnoronha/herd/internal/ipc"
+	"github.com/wnoronha/herd/internal/logger"
+	"github.com/wnoronha/herd/internal/testutil"
 )
 
 type clusterNode struct {
@@ -42,12 +42,17 @@ func newLocalCluster(t *testing.T, baseDir string, psk identity.Key) *localClust
 	}
 }
 
-func (c *localCluster) StartNode(name string, joinAddr string) *clusterNode {
+func (c *localCluster) startNode(name string, joinAddr string, alignPSK bool) *clusterNode {
 	c.t.Helper()
 	nodeDataDir := filepath.Join(c.baseDir, name, "data")
 	nodeConfigDir := filepath.Join(c.baseDir, name, "config")
 	nodeStateDir := filepath.Join(c.baseDir, name, "state")
-	nodeSocket := filepath.Join(c.baseDir, name, "herd.sock")
+	sockDir, err := os.MkdirTemp("", "hs")
+	if err != nil {
+		c.t.Fatalf("failed to create socket dir for %s: %v", name, err)
+	}
+	c.t.Cleanup(func() { _ = os.RemoveAll(sockDir) })
+	nodeSocket := filepath.Join(sockDir, "herd.sock")
 
 	cfg, err := config.Load(config.Options{
 		NodeName:   name,
@@ -68,8 +73,9 @@ func (c *localCluster) StartNode(name string, joinAddr string) *clusterNode {
 		c.t.Fatalf("failed to create daemon for %s: %v", name, err)
 	}
 
-	// Set shared cluster PSK
-	d.Identity.PreSharedKey = c.psk
+	if alignPSK {
+		d.Identity.PreSharedKey = c.psk
+	}
 
 	if err := d.Start(context.Background()); err != nil {
 		c.t.Fatalf("failed to start daemon %s: %v", name, err)
@@ -88,6 +94,14 @@ func (c *localCluster) StartNode(name string, joinAddr string) *clusterNode {
 	return node
 }
 
+func (c *localCluster) StartNode(name string, joinAddr string) *clusterNode {
+	return c.startNode(name, joinAddr, true)
+}
+
+func (c *localCluster) StartNodeDefaultIdentity(name string, joinAddr string) *clusterNode {
+	return c.startNode(name, joinAddr, false)
+}
+
 func (c *localCluster) StopNode(name string) {
 	c.t.Helper()
 	if node, ok := c.nodes[name]; ok {
@@ -101,6 +115,24 @@ func (c *localCluster) Close() {
 		_ = node.Daemon.Stop()
 		delete(c.nodes, name)
 	}
+}
+
+// TestMultiNodeClusterQuickstartJoin mirrors README quickstart: each node keeps its
+// generated identity (including per-node PSK) and joins via seed address only.
+func TestMultiNodeClusterQuickstartJoin(t *testing.T) {
+	testutil.SetupHermeticEnvironment(t)
+
+	tmpDir := t.TempDir()
+	cluster := newLocalCluster(t, tmpDir, identity.Key{})
+	defer cluster.Close()
+
+	node1 := cluster.StartNodeDefaultIdentity("node-1", "")
+	node1Addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(node1.Daemon.Transport.GetPort()))
+
+	node2 := cluster.StartNodeDefaultIdentity("node-2", node1Addr)
+	node3 := cluster.StartNodeDefaultIdentity("node-3", node1Addr)
+
+	verifyClusterConvergence(t, []*clusterNode{node1, node2, node3}, 3)
 }
 
 func TestMultiNodeClusterConvergenceAndFailure(t *testing.T) {

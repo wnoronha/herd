@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"herd/internal/subsys"
+	"github.com/wnoronha/herd/internal/subsys"
 )
 
 // ActiveForward represents a running port forwarder tunnel.

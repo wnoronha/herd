@@ -8,8 +8,8 @@ import (
 	"os"
 	"time"
 
-	"herd/internal/config"
-	"herd/internal/ipc"
+	"github.com/wnoronha/herd/internal/config"
+	"github.com/wnoronha/herd/internal/ipc"
 )
 
 // ExitCodeError is returned by RunExec when a remote command exits with a non-zero code.

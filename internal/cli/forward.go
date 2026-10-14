@@ -11,9 +11,9 @@ import (
 	"strings"
 	"syscall"
 
-	"herd/internal/config"
-	"herd/internal/ipc"
-	"herd/internal/subsys"
+	"github.com/wnoronha/herd/internal/config"
+	"github.com/wnoronha/herd/internal/ipc"
+	"github.com/wnoronha/herd/internal/subsys"
 )
 
 // RunForward executes the 'herd forward' command.

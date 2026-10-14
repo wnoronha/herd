@@ -3,11 +3,23 @@ run:
   tests: true
 linters:
   enable:
+    - errcheck
     - gocyclo
+    - gosec
     - misspell
+    - staticcheck
   settings:
     gocyclo:
       min-complexity: 30
+    gosec:
+      excludes:
+        - G204 # subsys remote exec is intentional product surface
+        - G117 # identity.json stores node private key by design
+        - G301 # cp creates destination dirs with standard permissions
+        - G302 # agent user-facing files use group-readable modes
+        - G304 # config/identity/cp paths come from XDG or validated IPC
+        - G306 # agent workspace files are not secrets
+        - G704 # web_fetch tool intentionally requests user-supplied URLs
     misspell:
       locale: US
   exclusions:
@@ -16,6 +28,10 @@ linters:
       - third_party$
       - builtin$
       - examples$
+    rules:
+      - path: _test\.go$
+        linters:
+          - gosec
 formatters:
   exclusions:
     generated: lax

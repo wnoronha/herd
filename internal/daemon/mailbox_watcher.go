@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"herd/internal/agent"
-	"herd/internal/kv"
-	"herd/internal/mailbox"
+	"github.com/wnoronha/herd/internal/agent"
+	"github.com/wnoronha/herd/internal/kv"
+	"github.com/wnoronha/herd/internal/mailbox"
 )
 
 // runMailboxWatcher runs the background reactive event loop watching for incoming messages

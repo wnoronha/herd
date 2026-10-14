@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"herd/internal/config"
-	"herd/internal/ipc"
-	"herd/internal/subsys"
+	"github.com/wnoronha/herd/internal/config"
+	"github.com/wnoronha/herd/internal/ipc"
+	"github.com/wnoronha/herd/internal/subsys"
 )
 
 // RunCP executes the 'herd cp' command.
