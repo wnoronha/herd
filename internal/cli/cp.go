@@ -17,7 +17,7 @@ func RunCP(args []string) error {
 	nodeName := fs.String("node-name", "", "Local node daemon to query")
 	socketPath := fs.String("socket", "", "Daemon Unix domain socket path")
 
-	if err := fs.Parse(args); err != nil {
+	if err := ParseFlags(fs, args); err != nil {
 		return err
 	}
 

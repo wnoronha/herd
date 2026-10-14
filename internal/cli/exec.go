@@ -28,7 +28,7 @@ func RunExec(args []string) error {
 	jsonOutput := fs.Bool("json", false, "Output results as JSON")
 	timeoutSec := fs.Int("timeout", 30, "Command execution timeout in seconds")
 
-	if err := fs.Parse(args); err != nil {
+	if err := ParseFlags(fs, args); err != nil {
 		return err
 	}
 

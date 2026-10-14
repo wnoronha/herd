@@ -19,7 +19,7 @@ Herd includes automated test suites covering all packages with race detection en
 ### 1.1 Complete Quality Gate (`make check`)
 Before you commit or publish a release, run the quality gate:
 ```bash
-# Runs go vet, golangci-lint, and go test -v -race ./...
+# Runs go vet, golangci-lint, govulncheck, and go test -v -race ./...
 make check
 ```
 

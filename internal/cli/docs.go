@@ -16,7 +16,7 @@ func RunDocs(args []string) error {
 	exportDir := fs.String("export", "", "Export all embedded docs to the specified directory")
 	all := fs.Bool("all", false, "Display all documentation guides concatenated")
 
-	if err := fs.Parse(args); err != nil {
+	if err := ParseFlags(fs, args); err != nil {
 		return err
 	}
 

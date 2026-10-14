@@ -14,7 +14,7 @@ func RunStatus(args []string) error {
 	socketFlags := RegisterSocketFlags(fs)
 	jsonOutput := fs.Bool("json", false, "Output status as JSON")
 
-	if err := fs.Parse(args); err != nil {
+	if err := ParseFlags(fs, args); err != nil {
 		return err
 	}
 

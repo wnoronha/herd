@@ -12,7 +12,7 @@ func RunLeave(args []string) error {
 	fs := flag.NewFlagSet("leave", flag.ExitOnError)
 	socketFlags := RegisterSocketFlags(fs)
 
-	if err := fs.Parse(args); err != nil {
+	if err := ParseFlags(fs, args); err != nil {
 		return err
 	}
 

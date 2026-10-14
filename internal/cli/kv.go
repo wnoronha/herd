@@ -73,7 +73,7 @@ func runKVGet(args []string) error {
 	socketPath := fs.String("socket", "", "Daemon Unix domain socket path")
 	jsonOutput := fs.Bool("json", false, "Output results as JSON")
 
-	if err := fs.Parse(args); err != nil {
+	if err := ParseFlags(fs, args); err != nil {
 		return err
 	}
 
@@ -117,7 +117,7 @@ func runKVSet(args []string) error {
 	ttl := fs.String("ttl", "", "Optional TTL duration (e.g. 5m, 1h)")
 	jsonOutput := fs.Bool("json", false, "Output results as JSON")
 
-	if err := fs.Parse(args); err != nil {
+	if err := ParseFlags(fs, args); err != nil {
 		return err
 	}
 
@@ -157,7 +157,7 @@ func runKVDelete(args []string) error {
 	socketPath := fs.String("socket", "", "Daemon Unix domain socket path")
 	jsonOutput := fs.Bool("json", false, "Output results as JSON")
 
-	if err := fs.Parse(args); err != nil {
+	if err := ParseFlags(fs, args); err != nil {
 		return err
 	}
 
@@ -197,7 +197,7 @@ func runKVList(args []string) error {
 	prefix := fs.String("prefix", "", "Filter keys by prefix")
 	jsonOutput := fs.Bool("json", false, "Output results as JSON")
 
-	if err := fs.Parse(args); err != nil {
+	if err := ParseFlags(fs, args); err != nil {
 		return err
 	}
 

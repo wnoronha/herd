@@ -20,7 +20,7 @@ func RunForward(args []string) error {
 	socketFlags := RegisterSocketFlags(fs)
 	bindHost := fs.String("bind", "127.0.0.1", "Local IP interface to bind listener to")
 
-	if err := fs.Parse(args); err != nil {
+	if err := ParseFlags(fs, args); err != nil {
 		return err
 	}
 

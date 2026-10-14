@@ -73,7 +73,7 @@ func runAgentInit(args []string) error {
 	force := fs.Bool("force", false, "Overwrite existing AGENTS.md if present")
 	global := fs.Bool("global", false, "Scaffold into global user config directory (~/.config/herd/agents)")
 
-	if err := fs.Parse(args); err != nil {
+	if err := ParseFlags(fs, args); err != nil {
 		return err
 	}
 
@@ -116,7 +116,7 @@ func runAgentPrompt(args []string) error {
 	model := fs.String("model", "", "Model name")
 	role := fs.String("role", "", "Agent role or persona name (e.g. researcher, ops)")
 
-	if err := fs.Parse(args); err != nil {
+	if err := ParseFlags(fs, args); err != nil {
 		return err
 	}
 
@@ -191,7 +191,7 @@ func runAgentChat(args []string) error {
 	model := fs.String("model", "", "Model name")
 	role := fs.String("role", "", "Agent role or persona name (e.g. researcher, ops)")
 
-	if err := fs.Parse(args); err != nil {
+	if err := ParseFlags(fs, args); err != nil {
 		return err
 	}
 

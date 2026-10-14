@@ -16,7 +16,7 @@ func RunRoster(args []string) error {
 	socketFlags := RegisterSocketFlags(fs)
 	jsonOutput := fs.Bool("json", false, "Output roster as JSON")
 
-	if err := fs.Parse(args); err != nil {
+	if err := ParseFlags(fs, args); err != nil {
 		return err
 	}
 

@@ -81,7 +81,7 @@ func runMailSend(args []string) error {
 	socketPath := fs.String("socket", "", "Daemon Unix domain socket path")
 	jsonOutput := fs.Bool("json", false, "Output results as JSON")
 
-	if err := fs.Parse(args); err != nil {
+	if err := ParseFlags(fs, args); err != nil {
 		return err
 	}
 
@@ -171,7 +171,7 @@ func runMailList(args []string) error {
 	socketPath := fs.String("socket", "", "Daemon Unix domain socket path")
 	jsonOutput := fs.Bool("json", false, "Output results as JSON")
 
-	if err := fs.Parse(args); err != nil {
+	if err := ParseFlags(fs, args); err != nil {
 		return err
 	}
 
@@ -226,7 +226,7 @@ func runMailRead(args []string) error {
 	socketPath := fs.String("socket", "", "Daemon Unix domain socket path")
 	jsonOutput := fs.Bool("json", false, "Output results as JSON")
 
-	if err := fs.Parse(args); err != nil {
+	if err := ParseFlags(fs, args); err != nil {
 		return err
 	}
 
@@ -289,7 +289,7 @@ func runMailWatch(args []string) error {
 	socketPath := fs.String("socket", "", "Daemon Unix domain socket path")
 	jsonOutput := fs.Bool("json", false, "Output messages as JSON stream")
 
-	if err := fs.Parse(args); err != nil {
+	if err := ParseFlags(fs, args); err != nil {
 		return err
 	}
 

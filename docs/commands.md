@@ -15,7 +15,9 @@ See also:
 
 ## 1. Global Flags & Environment Overrides
 
-Most CLI commands use the same daemon connection flags through `internal/cli/common.go`. Each command respects CLI flags and environment variables:
+Most CLI commands use the same daemon connection flags through `internal/cli/common.go`. Each command respects CLI flags and environment variables.
+
+You can put flags **before or after** positional arguments (for example `herd kv set cluster/motd "hello" --socket /path/herd.sock`). The CLI reorders flags internally before parsing.
 
 | Setting | Flag | Environment Variable | Default |
 |---|---|---|---|

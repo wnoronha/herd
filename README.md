@@ -60,6 +60,7 @@ herd roster
 
 # Write and read distributed KV data
 herd kv set cluster/motd "Decentralized mesh active"
+# Flags may appear after key/value: herd kv set cluster/motd "hello" --socket $HERD_SOCKET
 herd kv get cluster/motd
 
 # Send an asynchronous actor task to another node's mailbox
