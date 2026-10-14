@@ -13,6 +13,7 @@ const ServiceName = "_herd._tcp"
 type LocalInfo struct {
 	NodeName    string
 	IdentityKey string
+	Addr        string
 	Port        int
 	Version     string
 	MeshFP      string

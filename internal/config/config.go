@@ -25,6 +25,10 @@ type Config struct {
 	JoinAddr   string `json:"join_addr,omitempty"`
 	BindAddr   string `json:"bind_addr,omitempty"`
 	BindPort   int    `json:"bind_port,omitempty"`
+	// AdvertiseAddr pins the LAN address announced for local discovery.
+	AdvertiseAddr string `json:"advertise_addr,omitempty"`
+	// Mdns enables mDNS LAN discovery (default true).
+	Mdns bool `json:"-"`
 }
 
 // Options allows overriding configuration resolution.
@@ -38,6 +42,11 @@ type Options struct {
 	JoinAddr   string
 	BindAddr   string
 	BindPort   int
+	// AdvertiseAddr pins the LAN discovery address.
+	AdvertiseAddr string
+	// Mdns, when set, explicitly enables/disables mDNS discovery.
+	Mdns    bool
+	MdnsSet bool
 }
 
 // Load resolves the Herd configuration based on defaults, XDG specifications,
@@ -51,6 +60,7 @@ func Load(opts ...Options) (*Config, error) {
 	cfg := &Config{
 		BindAddr: DefaultBindAddr,
 		BindPort: DefaultBindPort,
+		Mdns:     true,
 	}
 
 	cfg.NodeName = resolveNodeName(opt.NodeName)
@@ -178,6 +188,30 @@ func resolveNetwork(cfg *Config, opt Options) {
 		// Explicit dynamic port requested in multi-node tests/options
 		cfg.BindPort = 0
 	}
+
+	if envAdv := os.Getenv("HERD_ADVERTISE_ADDR"); envAdv != "" {
+		cfg.AdvertiseAddr = strings.TrimSpace(envAdv)
+	}
+	if opt.AdvertiseAddr != "" {
+		cfg.AdvertiseAddr = strings.TrimSpace(opt.AdvertiseAddr)
+	}
+
+	// Precedence: default on -> config file -> env -> explicit CLI opt.
+	if envMdns := os.Getenv("HERD_MDNS"); envMdns != "" {
+		cfg.Mdns = !isFalsy(envMdns)
+	}
+	if opt.MdnsSet {
+		cfg.Mdns = opt.Mdns
+	}
+}
+
+// isFalsy reports 0/false/no/off (case-insensitive).
+func isFalsy(s string) bool {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "0", "false", "no", "off":
+		return true
+	}
+	return false
 }
 
 func (c *Config) loadFromFile(path string) error {
@@ -201,6 +235,16 @@ func (c *Config) loadFromFile(path string) error {
 	}
 	if aux.BindPort != 0 {
 		c.BindPort = aux.BindPort
+	}
+	if aux.AdvertiseAddr != "" {
+		c.AdvertiseAddr = aux.AdvertiseAddr
+	}
+	// mdns defaults true, so only an explicit file value may flip it.
+	var mdnsFile struct {
+		Mdns *bool `json:"mdns"`
+	}
+	if err := json.Unmarshal(data, &mdnsFile); err == nil && mdnsFile.Mdns != nil {
+		c.Mdns = *mdnsFile.Mdns
 	}
 	return nil
 }

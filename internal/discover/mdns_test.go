@@ -89,3 +89,46 @@ func TestParsePeerNameFallback(t *testing.T) {
 		t.Fatalf("expected hostname fallback, got %+v", peer)
 	}
 }
+
+func TestParsePeerPinnedAddr(t *testing.T) {
+	peer, ok := parsePeer(&zeroconf.ServiceEntry{
+		HostName: "node-d.local.",
+		Port:     7946,
+		Text:     []string{"node=node-d", "id=pubkey-d", "addr=10.9.9.9"},
+		AddrIPv4: []net.IP{net.ParseIP("192.168.1.99")},
+	})
+	if !ok {
+		t.Fatal("expected parseable peer")
+	}
+	want := []string{"10.9.9.9:7946"}
+	if !reflect.DeepEqual(peer.Addrs, want) {
+		t.Fatalf("pinned addr must win, got %v", peer.Addrs)
+	}
+}
+
+func TestParsePeerBadPinnedAddrFallsBack(t *testing.T) {
+	peer, ok := parsePeer(&zeroconf.ServiceEntry{
+		HostName: "node-e.local.",
+		Port:     7946,
+		Text:     []string{"node=node-e", "id=pubkey-e", "addr=not-an-ip"},
+		AddrIPv4: []net.IP{net.ParseIP("192.168.1.99")},
+	})
+	if !ok {
+		t.Fatal("expected parseable peer")
+	}
+	want := []string{"192.168.1.99:7946"}
+	if !reflect.DeepEqual(peer.Addrs, want) {
+		t.Fatalf("expected resolved fallback, got %v", peer.Addrs)
+	}
+}
+
+func TestLANIPUsable(t *testing.T) {
+	ip, err := LANIP()
+	if err != nil {
+		t.Skipf("no LAN IP in this environment: %v", err)
+	}
+	if ip.IsLoopback() || ip.IsUnspecified() || ip.IsMulticast() {
+		t.Fatalf("unusable LAN IP: %v", ip)
+	}
+	t.Logf("LAN IP: %v", ip)
+}

@@ -50,6 +50,8 @@ func SetupHermeticEnvironment(t testing.TB) {
 	// Never auto-probe a developer's local Ollama or consume leaked cloud
 	// keys: tests must be deterministic with or without network/daemons.
 	t.Setenv("HERD_DISABLE_AUTO_OLLAMA", "1")
+	// Keep daemon tests hermetic: no mDNS multicast from test processes.
+	t.Setenv("HERD_MDNS", "0")
 	for _, k := range []string{
 		"OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_API_BASE", "OPENAI_MODEL",
 		"GEMINI_API_KEY", "GOOGLE_API_KEY", "GEMINI_MODEL",

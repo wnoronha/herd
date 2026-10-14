@@ -12,6 +12,7 @@ import (
 	"github.com/hashicorp/memberlist"
 	"github.com/wnoronha/herd/internal/agent"
 	"github.com/wnoronha/herd/internal/config"
+	"github.com/wnoronha/herd/internal/discover"
 	"github.com/wnoronha/herd/internal/identity"
 	"github.com/wnoronha/herd/internal/ipc"
 	"github.com/wnoronha/herd/internal/kv"
@@ -39,6 +40,12 @@ type Daemon struct {
 	processedMsgs     sync.Map
 	forwarderRegistry *ForwarderRegistry
 	agentRuntime      *AgentRuntime
+
+	// Local discovery (mDNS) state, guarded by mu.
+	discoverProvider discover.Provider
+	discoverPipeline *discover.Pipeline
+	discoverCancel   context.CancelFunc
+	warnedClashes    map[string]bool
 
 	mu         sync.RWMutex
 	state      string
@@ -215,6 +222,9 @@ func (d *Daemon) Start(ctx context.Context) error {
 		}(d.Config.JoinAddr, runCtx)
 	}
 
+	// 7. LAN discovery (mDNS): announce and browse unless disabled.
+	d.startDiscovery()
+
 	return nil
 }
 
@@ -243,6 +253,9 @@ func (d *Daemon) Stop() error {
 	d.mu.Unlock()
 
 	var errs []error
+
+	// 0. Stop LAN discovery first: revoke advertisement, end browsing.
+	d.stopDiscovery()
 
 	// 1. Stop agent runtime and cancel in-flight IPC/stream work
 	if runCancel != nil {

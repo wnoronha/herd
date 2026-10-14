@@ -8,10 +8,10 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
-	"go.uber.org/zap"
 	"github.com/wnoronha/herd/internal/config"
 	"github.com/wnoronha/herd/internal/daemon"
 	"github.com/wnoronha/herd/internal/logger"
+	"go.uber.org/zap"
 )
 
 func init() {
@@ -20,12 +20,14 @@ func init() {
 
 func newDaemonCmd() *cobra.Command {
 	var (
-		bindAddr  string
-		bindPort  int
-		joinAddr  string
-		configDir string
-		dataDir   string
-		stateDir  string
+		bindAddr      string
+		bindPort      int
+		joinAddr      string
+		advertiseAddr string
+		mdns          bool
+		configDir     string
+		dataDir       string
+		stateDir      string
 	)
 
 	cmd := &cobra.Command{
@@ -36,16 +38,22 @@ func newDaemonCmd() *cobra.Command {
 			nodeName := rootNodeName
 			socketPath := rootSocket
 
-			cfg, err := config.Load(config.Options{
-				NodeName:   nodeName,
-				BindAddr:   bindAddr,
-				BindPort:   bindPort,
-				JoinAddr:   joinAddr,
-				ConfigDir:  configDir,
-				DataDir:    dataDir,
-				StateDir:   stateDir,
-				SocketPath: socketPath,
-			})
+			opts := config.Options{
+				NodeName:      nodeName,
+				BindAddr:      bindAddr,
+				BindPort:      bindPort,
+				JoinAddr:      joinAddr,
+				AdvertiseAddr: advertiseAddr,
+				ConfigDir:     configDir,
+				DataDir:       dataDir,
+				StateDir:      stateDir,
+				SocketPath:    socketPath,
+			}
+			if cmd.Flags().Changed("mdns") {
+				opts.Mdns = mdns
+				opts.MdnsSet = true
+			}
+			cfg, err := config.Load(opts)
 			if err != nil {
 				return fmt.Errorf("failed to load configuration: %w", err)
 			}
@@ -91,6 +99,8 @@ func newDaemonCmd() *cobra.Command {
 	cmd.Flags().StringVar(&bindAddr, "bind-addr", "0.0.0.0", "Bind IP address for gossip and tunnel transport")
 	cmd.Flags().IntVar(&bindPort, "bind-port", -1, "Bind port for gossip and tunnel transport (default 7946, 0 for dynamic)")
 	cmd.Flags().StringVar(&joinAddr, "join", "", "Seed peer address to join on startup (e.g. 10.0.0.1:7946)")
+	cmd.Flags().StringVar(&advertiseAddr, "advertise-addr", "", "LAN address announced for local discovery (default: auto-detected)")
+	cmd.Flags().BoolVar(&mdns, "mdns", true, "Enable mDNS LAN discovery (use --mdns=false to disable)")
 	cmd.Flags().StringVar(&configDir, "config-dir", "", "Custom configuration directory")
 	cmd.Flags().StringVar(&dataDir, "data-dir", "", "Custom data storage directory")
 	cmd.Flags().StringVar(&stateDir, "state-dir", "", "Custom state directory")

@@ -12,10 +12,14 @@ import (
 )
 
 // TXT record keys for herd instances. mesh_fp is reserved for the future
-// mesh-key epic and stays empty in v1 (open mesh).
+// mesh-key epic and stays empty in v1 (open mesh). addr pins one dialable
+// IP (from --advertise-addr or LAN detection) so multihomed hosts with
+// noisy interfaces (docker0, VPNs) still advertise a working address;
+// browsers prefer it over mDNS-resolved IPs.
 const (
 	txtNode    = "node"
 	txtID      = "id"
+	txtAddr    = "addr"
 	txtPort    = "port"
 	txtVersion = "ver"
 	txtMeshFP  = "mesh_fp"
@@ -97,6 +101,7 @@ func buildTXT(info LocalInfo) []string {
 	return []string{
 		txtNode + "=" + info.NodeName,
 		txtID + "=" + info.IdentityKey,
+		txtAddr + "=" + info.Addr,
 		txtPort + "=" + strconv.Itoa(info.Port),
 		txtVersion + "=" + info.Version,
 		txtMeshFP + "=" + info.MeshFP,
@@ -114,6 +119,19 @@ func parsePeer(entry *zeroconf.ServiceEntry) (DiscoveredPeer, bool) {
 	if id == "" {
 		return DiscoveredPeer{}, false
 	}
+	// A pinned addr (operator override or LAN detection) wins over
+	// mDNS-resolved IPs, which may include docker/VPN interfaces.
+	if pinned := txt[txtAddr]; pinned != "" {
+		if ip := net.ParseIP(pinned); ip != nil && usableIP(ip) {
+			return DiscoveredPeer{
+				NodeName:    peerName(entry, txt),
+				IdentityKey: id,
+				Addrs:       []string{net.JoinHostPort(ip.String(), strconv.Itoa(entry.Port))},
+				Version:     txt[txtVersion],
+				MeshFP:      txt[txtMeshFP],
+			}, true
+		}
+	}
 	var addrs []string
 	for _, ip := range entry.AddrIPv4 {
 		if usableIP(ip) {
@@ -128,17 +146,21 @@ func parsePeer(entry *zeroconf.ServiceEntry) (DiscoveredPeer, bool) {
 	if len(addrs) == 0 {
 		return DiscoveredPeer{}, false
 	}
-	name := txt[txtNode]
-	if name == "" {
-		name = entry.HostName
-	}
 	return DiscoveredPeer{
-		NodeName:    name,
+		NodeName:    peerName(entry, txt),
 		IdentityKey: id,
 		Addrs:       addrs,
 		Version:     txt[txtVersion],
 		MeshFP:      txt[txtMeshFP],
 	}, true
+}
+
+// peerName prefers the TXT node name, falling back to the DNS hostname.
+func peerName(entry *zeroconf.ServiceEntry, txt map[string]string) string {
+	if name := txt[txtNode]; name != "" {
+		return name
+	}
+	return entry.HostName
 }
 
 // parseTXT decodes "k=v" TXT records; malformed entries are skipped.
