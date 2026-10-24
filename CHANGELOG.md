@@ -5,10 +5,19 @@ The format follows Keep a Changelog 1.1.0.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-24
+
 ### Added
-- Add streaming agent responses over IPC.
+- Add streaming agent responses over IPC (Inter-Process Communication).
 - Add yes-or-no approval prompts for destructive chat tools.
 - Add chat commands for tools, history, and sessions.
+- Add Agent Development Kit (ADK) v2 engine with session runners.
+- Add Ollama auto-probe with deterministic fallback for air-gapped prompts.
+- Add session TTL (Time-To-Live) and cap eviction for persisted chat sessions.
+
+### Fixed
+- Skip history fold when a session persists context.
+- Retry local models without tool support through a tool-less call.
 
 ## [v0.2.0] - 2026-10-20
 
