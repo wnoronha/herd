@@ -30,7 +30,11 @@ type ClusterContext interface {
 }
 
 // BuildDefaultTools constructs the full suite of cluster & inter-agent tools.
-func BuildDefaultTools(cctx ClusterContext) []ToolDefinition {
+func BuildDefaultTools(cctx ClusterContext, eng ...*Engine) []ToolDefinition {
+	var engine *Engine
+	if len(eng) > 0 {
+		engine = eng[0]
+	}
 	return []ToolDefinition{
 		buildClusterRosterTool(cctx),
 		buildClusterExecTool(cctx),
@@ -44,10 +48,11 @@ func BuildDefaultTools(cctx ClusterContext) []ToolDefinition {
 		buildDNSLookupTool(),
 		buildFileReadTool(),
 		buildFileWriteTool(),
-		buildArtifactStoreTool(cctx),
+		buildArtifactStoreTool(cctx, engine),
+		buildMemoryRecallTool(engine),
 		buildClusterForwardTool(cctx),
 		buildClusterManageTool(cctx),
-		buildRunAgentTool(nil),
+		buildRunAgentTool(engine),
 	}
 }
 
@@ -200,7 +205,7 @@ func buildClusterCPTool(cctx ClusterContext) ToolDefinition {
 func buildSharedKVTool(cctx ClusterContext) ToolDefinition {
 	return ToolDefinition{
 		Name:        "shared_kv",
-		Description: "Read, write, delete, or list distributed key-value data replicated across the cluster mesh.",
+		Description: "Read, write, delete, or list shared cluster facts replicated across the mesh (config, policy, roster facts only; conversational memory lives in ADK memory).",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{

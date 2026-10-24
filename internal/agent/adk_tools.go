@@ -10,6 +10,9 @@ import (
 	"google.golang.org/adk/v2/agent/llmagent"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/adk/v2/tool"
+	"google.golang.org/adk/v2/tool/loadartifactstool"
+	"google.golang.org/adk/v2/tool/loadmemorytool"
+	"google.golang.org/adk/v2/tool/preloadmemorytool"
 	"google.golang.org/adk/v2/tool/toolutils"
 	"google.golang.org/genai"
 )
@@ -125,15 +128,33 @@ func (t *herdADKTool) Run(ctx agent.Context, args any) (map[string]any, error) {
 	return resMap, nil
 }
 
-// buildADKTools converts the role-scoped Herd tool registry into ADK tools.
+// buildADKTools converts the role-scoped Herd tool registry into ADK tools,
+// plus the ADK load/preload memory and load artifact tools behind the thin
+// Herd wrappers (memory_recall, artifact_store).
 func (e *Engine) buildADKTools(allowed []string) []tool.Tool {
 	scoped := e.getEffectiveTools(allowed)
-	out := make([]tool.Tool, 0, len(scoped))
+	out := make([]tool.Tool, 0, len(scoped)+3)
 	for _, def := range scoped {
 		def := def
 		out = append(out, &herdADKTool{def: def, engine: e})
 	}
+	if len(allowed) == 0 || containsTool(allowed, "load_memory") || containsTool(allowed, "memory_recall") {
+		out = append(out, loadmemorytool.New())
+	}
+	if len(allowed) == 0 {
+		out = append(out, preloadmemorytool.New())
+		out = append(out, loadartifactstool.New())
+	}
 	return out
+}
+
+func containsTool(allowed []string, name string) bool {
+	for _, a := range allowed {
+		if strings.EqualFold(strings.TrimSpace(a), name) {
+			return true
+		}
+	}
+	return false
 }
 
 // herdBeforeToolCallback enforces agent:policy:allowed_exec fail-closed on

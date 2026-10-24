@@ -90,7 +90,7 @@ The agent runtime is equipped with Go functions implementing the ADK Tool interf
 - **Return Data**: JSON object with transfer success status, bytes transferred, and message.
 
 ### 2.4 `SharedKVTool` (`shared_kv`)
-- **Purpose**: Allows agents to persist and retrieve shared knowledge, status reports, and coordination locks across the cluster.
+- **Purpose**: Allows agents to persist and retrieve shared cluster facts (config, policy, roster facts only) across the cluster. Conversational memory lives in ADK memory, not KV gossip.
 - **Input Parameters**:
   - `action` (`string`): `"get"`, `"set"`, `"delete"`, or `"list"`.
   - `key` (`string`): Key identifier (e.g. `agent:memory:incidents/high-cpu`).
@@ -163,15 +163,22 @@ The agent runtime is equipped with Go functions implementing the ADK Tool interf
 - **Return Data**: JSON object with `path`, `bytes_written`, and `status` (`created`, `overwritten`, or `appended`).
 
 ### 2.12 `ArtifactStoreTool` (`artifact_store`)
-- **Purpose**: Manages multi-turn execution artifacts (documents, code patches, analysis reports, run logs) on the local node under `~/.local/share/herd/<node>/artifacts/` without polluting structured KV gossip.
+- **Purpose**: Thin Herd wrapper over the ADK artifact service with versioned entries (disk export wrapped as fallback) without polluting structured KV gossip.
 - **Input Parameters**:
-  - `action` (`string`): One of `"store"`, `"get"`, `"list"`, or `"delete"`.
-  - `name` (`string`): Artifact identifier (required for `store`, `get`, `delete`).
+  - `action` (`string`): One of `"store"`, `"get"`, `"list"`, `"delete"`, or `"versions"`.
+  - `name` (`string`): Artifact identifier (required for `store`, `get`, `delete`, `versions`).
   - `content` (`string`): Content string (required for `store`).
+  - `version` (`number`): Optional pinned version for `get` (default: latest).
   - `metadata` (`object`): Optional key-value metadata tags.
-- **Return Data**: Artifact contents, size, creation/update timestamps, and metadata tags.
+- **Return Data**: Artifact contents, size, version, creation/update timestamps, and metadata tags. `versions` lists all versions; `list` reports versioned entries.
 
-### 2.13 `ClusterForwardTool` (`cluster_forward`)
+### 2.13 `MemoryRecallTool` (`memory_recall`)
+- **Purpose**: Thin Herd wrapper over the ADK memory service. Recalls relevant prior chat sessions read-only without KV gossip writes. The runner also wires ADK `load_memory`, `preload_memory`, and `load_artifacts` tools.
+- **Input Parameters**:
+  - `query` (`string`): Natural-language query to search prior sessions.
+- **Return Data**: Matching memory entries with id, author, content, and timestamp.
+
+### 2.14 `ClusterForwardTool` (`cluster_forward`)
 - **Purpose**: Dynamically establishes, lists, or stops bidirectional TCP port forwarding tunnels across mesh nodes over encrypted Tailcat streams.
 - **Input Parameters**:
   - `action` (`string`): `"start"`, `"stop"`, or `"list"`.
@@ -182,14 +189,14 @@ The agent runtime is equipped with Go functions implementing the ADK Tool interf
   - `id` (`string`): Tunnel identifier to stop (required for `stop` if `local_port` omitted).
 - **Return Data**: Tunnel status, tunnel ID, listening address, and uptime.
 
-### 2.14 `ClusterManageTool` (`cluster_manage`)
+### 2.15 `ClusterManageTool` (`cluster_manage`)
 - **Purpose**: Allows agents to inspect node/daemon health, join peer addresses dynamically, or initiate graceful leaves.
 - **Input Parameters**:
   - `action` (`string`): `"status"`, `"join"`, or `"leave"`.
   - `address` (`string`): Peer address or endpoint to join (required for `join`).
 - **Return Data**: Daemon status (uptime, member count, Tailcat addr), joined peer count, or leave confirmation.
 
-### 2.15 `RunAgentTool` (`run_agent`)
+### 2.16 `RunAgentTool` (`run_agent`)
 - **Purpose**: Generic agent invocation primitive implementing Google ADK's `AgentTool` pattern. Allows any agent or persona to execute an isolated task prompt against any other agent without hardcoded role hierarchies.
 - **Input Parameters**:
   - `agent` (`string`): Target agent name or persona to invoke (e.g. `ops`, `researcher`, or custom persona).
@@ -425,7 +432,7 @@ Use **`herd agent status --probe`** before debugging prompts. Common cases:
 | `adk_tools.go` | `herdADKTool` bridge (`tool.Tool` plus `Declaration`, `Run`, `ProcessRequest` via `toolutils.PackTool`), `BeforeToolCallback` exec-policy guard, `OnToolErrorCallback` rejection contract, `run_agent` recursion cap. |
 | `engine.go` | `llmagent.New` with `InstructionProvider` (raw system prompt, no `{template}` injection) plus `runner.Runner` over the ADK database session service at `StateDir/sessions.db` with sliding-window compaction; reconstructs `ToolsCalled` matched by call ID in call order. |
 
-System prompts travel via `InstructionProvider` so markdown containing `{curly_braces}` never triggers ADK session-state template errors. Keyless local endpoints receive the placeholder key `ollama` so `openai-go/v3` never fails on a missing `OPENAI_API_KEY`; the default `api.openai.com` endpoint still requires a real key. Stateful chat persists in the shared database service at `StateDir/sessions.db` only when the request carries a `SessionID`; one-shot prompts run on an ephemeral in-memory service that is discarded after the call, so the daemon never accumulates sessions. The runner enables ADK sliding-window compaction for chat sessions.
+System prompts travel via `InstructionProvider` so markdown containing `{curly_braces}` never triggers ADK session-state template errors. Keyless local endpoints receive the placeholder key `ollama` so `openai-go/v3` never fails on a missing `OPENAI_API_KEY`; the default `api.openai.com` endpoint still requires a real key. Stateful chat persists in the shared database service at `StateDir/sessions.db` only when the request carries a `SessionID`; one-shot prompts run on an ephemeral in-memory service that is discarded after the call, so the daemon never accumulates sessions. The runner enables ADK sliding-window compaction and wires ADK memory and artifact services; completed chat turns ingest into memory so `memory_recall` and the ADK `load_memory` and `preload_memory` tools read prior sessions without KV gossip writes.
 
 ---
 

@@ -9,6 +9,9 @@ The format follows Keep a Changelog 1.1.0.
 - Persist chat sessions in StateDir sessions.db with ADK database service.
 - Add chat list command for persisted sessions.
 - Enable ADK sliding-window compaction for chat sessions.
+- Add memory recall tool backed by ADK memory service.
+- Wire ADK load and preload memory tools plus artifact load tools.
+- List versioned artifact entries through ADK artifact service.
 
 ### Removed
 - Remove in-memory TTL eviction for chat sessions.

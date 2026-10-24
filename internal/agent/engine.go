@@ -16,6 +16,8 @@ import (
 	"github.com/glebarez/sqlite"
 	"google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/agent/llmagent"
+	"google.golang.org/adk/v2/artifact"
+	"google.golang.org/adk/v2/memory"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/adk/v2/runner"
 	"google.golang.org/adk/v2/session"
@@ -26,14 +28,16 @@ import (
 
 // Engine orchestrates AI agent prompt processing through ADK llmagent + runner.
 type Engine struct {
-	config     Config
-	tools      map[string]ToolDefinition
-	cctx       ClusterContext
-	agents     map[string]*AgentDefinition
-	mu         sync.RWMutex
-	sessionSvc session.Service
-	sessionMu  sync.Mutex
-	confirm    confirmState
+	config      Config
+	tools       map[string]ToolDefinition
+	cctx        ClusterContext
+	agents      map[string]*AgentDefinition
+	mu          sync.RWMutex
+	sessionSvc  session.Service
+	memorySvc   memory.Service
+	artifactSvc artifact.Service
+	sessionMu   sync.Mutex
+	confirm     confirmState
 }
 
 // herdADKAppName and herdADKUserID match the runner invocation identity
@@ -96,6 +100,31 @@ func openDatabaseSessionService(dir string) (session.Service, error) {
 	return svc, nil
 }
 
+// memoryService returns the shared ADK memory service (thin layer over
+// ADK InMemoryService). Sessions are ingested best-effort after each run so
+// memory_recall and the ADK load/preload memory tools read prior sessions
+// without KV gossip writes.
+func (e *Engine) memoryService() memory.Service {
+	e.sessionMu.Lock()
+	defer e.sessionMu.Unlock()
+	if e.memorySvc == nil {
+		e.memorySvc = memory.InMemoryService()
+	}
+	return e.memorySvc
+}
+
+// artifactService returns the shared ADK artifact service (thin layer over
+// ADK InMemoryService). The artifact_store Herd tool wraps this service so
+// entries stay versioned; local disk files remain as an export fallback.
+func (e *Engine) artifactService() artifact.Service {
+	e.sessionMu.Lock()
+	defer e.sessionMu.Unlock()
+	if e.artifactSvc == nil {
+		e.artifactSvc = artifact.InMemoryService()
+	}
+	return e.artifactSvc
+}
+
 // compactionConfig enables ADK sliding-window compaction for chat sessions.
 func compactionConfig() *compaction.Config {
 	return &compaction.Config{CompactionInterval: compactionInterval}
@@ -103,7 +132,7 @@ func compactionConfig() *compaction.Config {
 
 // SessionInfo summarizes one persisted chat session for list/resume.
 type SessionInfo struct {
-	ID             string    `json:"id"`
+	ID            string    `json:"id"`
 	LastUpdateTime time.Time `json:"last_update_time"`
 }
 
@@ -532,6 +561,8 @@ func (e *Engine) runADKAgentStreaming(ctx context.Context, req *PromptRequest, e
 		AppName:           herdADKAppName,
 		Agent:             adkAgent,
 		SessionService:    svc,
+		ArtifactService:   e.artifactService(),
+		MemoryService:     e.memoryService(),
 		AutoCreateSession: true,
 		Compaction:        compactionConfig(),
 	})
@@ -547,6 +578,10 @@ func (e *Engine) runADKAgentStreaming(ctx context.Context, req *PromptRequest, e
 	trace, err := collectADKTraceStreaming(ctx, r, sessionID, msg, yield)
 	if err != nil {
 		return nil, err
+	}
+
+	if req.SessionID != "" {
+		e.ingestSessionToMemory(ctx, svc, sessionID)
 	}
 
 	resp := &PromptResponse{
@@ -724,6 +759,8 @@ func (e *Engine) runADKAgent(ctx context.Context, req *PromptRequest, effCfg Con
 		AppName:           herdADKAppName,
 		Agent:             adkAgent,
 		SessionService:    svc,
+		ArtifactService:   e.artifactService(),
+		MemoryService:     e.memoryService(),
 		AutoCreateSession: true,
 		Compaction:        compactionConfig(),
 	})
@@ -741,6 +778,10 @@ func (e *Engine) runADKAgent(ctx context.Context, req *PromptRequest, effCfg Con
 		return nil, err
 	}
 
+	if req.SessionID != "" {
+		e.ingestSessionToMemory(ctx, svc, sessionID)
+	}
+
 	resp := &PromptResponse{
 		Response:    trace.text,
 		ToolsCalled: trace.toolsCalled,
@@ -754,6 +795,21 @@ func (e *Engine) runADKAgent(ctx context.Context, req *PromptRequest, effCfg Con
 		resp.Confirmation = &prompt
 	}
 	return resp, nil
+}
+
+// ingestSessionToMemory adds a persisted chat session to ADK memory so
+// memory_recall and the ADK load/preload memory tools find prior turns.
+// One-shot ephemeral sessions are skipped. Best-effort: never fails prompt.
+func (e *Engine) ingestSessionToMemory(ctx context.Context, svc session.Service, sessionID string) {
+	mem := e.memoryService()
+	if mem == nil || svc == nil {
+		return
+	}
+	get, err := svc.Get(ctx, &session.GetRequest{AppName: herdADKAppName, UserID: herdADKUserID, SessionID: sessionID})
+	if err != nil || get == nil || get.Session == nil {
+		return
+	}
+	_ = mem.AddSessionToMemory(ctx, get.Session)
 }
 
 // resolveSystemPrompt returns the effective system prompt with the target-node

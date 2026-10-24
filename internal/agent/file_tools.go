@@ -233,26 +233,40 @@ func resolveArtifactsDir(cctx ClusterContext) string {
 	return filepath.Join(os.TempDir(), "herd-artifacts")
 }
 
-// buildArtifactStoreTool creates the artifact_store tool following the ADK Artifacts pattern.
-func buildArtifactStoreTool(cctx ClusterContext) ToolDefinition {
+// artifactSharedSession scopes ADK artifact entries so they are visible
+// across chat sessions (ADK artifacts are session-scoped by default).
+const artifactSharedSession = "shared"
+
+// buildArtifactStoreTool creates the artifact_store tool as a thin Herd wrapper
+// over the ADK artifact service with versioned entries. Disk files remain as a
+// wrapped export fallback; the ADK service is the versioned source of truth.
+func buildArtifactStoreTool(cctx ClusterContext, eng ...*Engine) ToolDefinition {
+	var engine *Engine
+	if len(eng) > 0 {
+		engine = eng[0]
+	}
 	return ToolDefinition{
 		Name:        "artifact_store",
-		Description: "Store, retrieve, list, or delete multi-turn execution artifacts (documents, diffs, code, logs) on the local node's artifact repository.",
+		Description: "Store, retrieve, list, or delete versioned multi-turn execution artifacts via the ADK artifact service (disk export wrapped as fallback).",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"action": map[string]any{
 					"type":        "string",
-					"description": "Artifact action: 'store', 'get', 'list', or 'delete'",
-					"enum":        []string{"store", "get", "list", "delete"},
+					"description": "Artifact action: 'store', 'get', 'list', 'delete', or 'versions'",
+					"enum":        []string{"store", "get", "list", "delete", "versions"},
 				},
 				"name": map[string]any{
 					"type":        "string",
-					"description": "Artifact identifier/filename (required for store, get, delete)",
+					"description": "Artifact identifier/filename (required for store, get, delete, versions)",
 				},
 				"content": map[string]any{
 					"type":        "string",
 					"description": "Artifact content string (required for action='store')",
+				},
+				"version": map[string]any{
+					"type":        "number",
+					"description": "Optional artifact version for get (default: latest)",
 				},
 				"metadata": map[string]any{
 					"type":        "object",
@@ -275,21 +289,23 @@ func buildArtifactStoreTool(cctx ClusterContext) ToolDefinition {
 
 			switch action {
 			case "store":
-				return executeArtifactStore(artifactsDir, args)
+				return executeArtifactStore(ctx, engine, artifactsDir, args)
 			case "get":
-				return executeArtifactGet(artifactsDir, args)
+				return executeArtifactGet(ctx, engine, artifactsDir, args)
 			case "list":
-				return executeArtifactList(artifactsDir)
+				return executeArtifactList(ctx, engine, artifactsDir)
 			case "delete":
-				return executeArtifactDelete(artifactsDir, args)
+				return executeArtifactDelete(ctx, engine, artifactsDir, args)
+			case "versions":
+				return executeArtifactVersions(ctx, engine, args)
 			default:
-				return nil, fmt.Errorf("unsupported action '%s', expected 'store', 'get', 'list', or 'delete'", action)
+				return nil, fmt.Errorf("unsupported action '%s', expected 'store', 'get', 'list', 'delete', or 'versions'", action)
 			}
 		},
 	}
 }
 
-func executeArtifactStore(artifactsDir string, args map[string]any) (any, error) {
+func executeArtifactStore(ctx context.Context, eng *Engine, artifactsDir string, args map[string]any) (any, error) {
 	name, ok := args["name"].(string)
 	if !ok || strings.TrimSpace(name) == "" {
 		return nil, errors.New("parameter 'name' is required for action 'store'")
@@ -320,9 +336,11 @@ func executeArtifactStore(artifactsDir string, args map[string]any) (any, error)
 		}
 	}
 
+	customMeta := map[string]any{}
 	if metaMap, ok := args["metadata"].(map[string]any); ok {
 		for k, v := range metaMap {
 			meta.Metadata[k] = fmt.Sprintf("%v", v)
+			customMeta[k] = fmt.Sprintf("%v", v)
 		}
 	}
 
@@ -337,22 +355,45 @@ func executeArtifactStore(artifactsDir string, args map[string]any) (any, error)
 		return nil, fmt.Errorf("failed to store artifact metadata: %w", err)
 	}
 
+	// Thin-layer versioning: also save to the ADK artifact service so list
+	// and versions report versioned entries. Disk stays as export fallback.
+	var version int64
+	if eng != nil {
+		version = saveArtifactToADK(ctx, eng, cleanName, content, customMeta)
+	}
+
 	return map[string]any{
 		"status":     "stored",
 		"name":       cleanName,
 		"size":       meta.Size,
+		"version":    version,
 		"created_at": meta.CreatedAt.Format(time.RFC3339),
 		"updated_at": meta.UpdatedAt.Format(time.RFC3339),
 		"metadata":   meta.Metadata,
 	}, nil
 }
 
-func executeArtifactGet(artifactsDir string, args map[string]any) (any, error) {
+func executeArtifactGet(ctx context.Context, eng *Engine, artifactsDir string, args map[string]any) (any, error) {
 	name, ok := args["name"].(string)
 	if !ok || strings.TrimSpace(name) == "" {
 		return nil, errors.New("parameter 'name' is required for action 'get'")
 	}
 	cleanName := filepath.Base(strings.TrimSpace(name))
+	var wantVersion int64
+	if v, ok := args["version"].(float64); ok && v > 0 {
+		wantVersion = int64(v)
+	}
+	// Prefer the ADK versioned service; fall back to disk export.
+	if eng != nil {
+		if content, version, found := loadArtifactFromADK(ctx, eng, cleanName, wantVersion); found {
+			return map[string]any{
+				"name":    cleanName,
+				"content": content,
+				"size":    len(content),
+				"version": version,
+			}, nil
+		}
+	}
 	dataPath := filepath.Join(artifactsDir, cleanName)
 	metaPath := filepath.Join(artifactsDir, cleanName+".meta.json")
 
@@ -383,13 +424,14 @@ func executeArtifactGet(artifactsDir string, args map[string]any) (any, error) {
 	}, nil
 }
 
-func executeArtifactList(artifactsDir string) (any, error) {
+func executeArtifactList(ctx context.Context, eng *Engine, artifactsDir string) (any, error) {
 	entries, err := os.ReadDir(artifactsDir)
-	if err != nil {
+	if err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("failed to read artifacts directory: %w", err)
 	}
 
 	var artifacts []ArtifactMeta
+	seen := map[string]bool{}
 	for _, entry := range entries {
 		if entry.IsDir() || strings.HasSuffix(entry.Name(), ".meta.json") {
 			continue
@@ -411,14 +453,26 @@ func executeArtifactList(artifactsDir string) (any, error) {
 			}
 		}
 		artifacts = append(artifacts, meta)
+		seen[cleanName] = true
+	}
+	// Merge ADK versioned entries so list reports versioned artifacts even
+	// when the disk export is missing.
+	var versioned []adkVersionedEntry
+	for _, a := range artifacts {
+		versioned = append(versioned, adkVersionedEntry{ArtifactMeta: a})
+	}
+	if eng != nil {
+		for _, ve := range listArtifactsFromADK(ctx, eng, seen) {
+			versioned = append(versioned, ve)
+		}
 	}
 	return map[string]any{
-		"artifacts": artifacts,
-		"count":     len(artifacts),
+		"artifacts": versioned,
+		"count":     len(versioned),
 	}, nil
 }
 
-func executeArtifactDelete(artifactsDir string, args map[string]any) (any, error) {
+func executeArtifactDelete(ctx context.Context, eng *Engine, artifactsDir string, args map[string]any) (any, error) {
 	name, ok := args["name"].(string)
 	if !ok || strings.TrimSpace(name) == "" {
 		return nil, errors.New("parameter 'name' is required for action 'delete'")
@@ -429,9 +483,22 @@ func executeArtifactDelete(artifactsDir string, args map[string]any) (any, error
 
 	_ = os.Remove(dataPath)
 	_ = os.Remove(metaPath)
+	deleteArtifactFromADK(ctx, eng, cleanName)
 
 	return map[string]any{
 		"status": "deleted",
 		"name":   cleanName,
 	}, nil
+}
+
+func executeArtifactVersions(ctx context.Context, eng *Engine, args map[string]any) (any, error) {
+	name, ok := args["name"].(string)
+	if !ok || strings.TrimSpace(name) == "" {
+		return nil, errors.New("parameter 'name' is required for action 'versions'")
+	}
+	cleanName := filepath.Base(strings.TrimSpace(name))
+	if eng == nil {
+		return map[string]any{"name": cleanName, "versions": []any{}, "count": 0}, nil
+	}
+	return versionsArtifactFromADK(ctx, eng, cleanName)
 }
