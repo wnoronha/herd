@@ -3,17 +3,14 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"os"
 	"time"
 
-	"herd/internal/config"
-	"herd/internal/ipc"
+	"github.com/wnoronha/herd/internal/ipc"
 )
 
-// ExitCodeError is returned by RunExec when a remote command exits with a non-zero code.
-// main() should call os.Exit with its Code field rather than printing an error message.
+// ExitCodeError is returned when a remote command exits with a non-zero code.
 type ExitCodeError struct {
 	Code int
 }
@@ -22,44 +19,19 @@ func (e ExitCodeError) Error() string {
 	return fmt.Sprintf("exit status %d", e.Code)
 }
 
-// RunExec executes the 'herd exec' command.
-func RunExec(args []string) error {
-	fs := flag.NewFlagSet("exec", flag.ExitOnError)
-	socketNodeName := fs.String("node-name", "", "Local node daemon to communicate with")
-	socketPath := fs.String("socket", "", "Daemon Unix domain socket path")
-	jsonOutput := fs.Bool("json", false, "Output results as JSON")
-	timeoutSec := fs.Int("timeout", 30, "Command execution timeout in seconds")
-
-	if err := fs.Parse(args); err != nil {
+func execAction(target, command string, cmdArgs []string, jsonOutput bool, timeoutSec int) error {
+	client, _, err := daemonClient()
+	if err != nil {
 		return err
 	}
-
-	remaining := fs.Args()
-	if len(remaining) < 2 {
-		return fmt.Errorf("usage: herd exec [flags] <node-name|all|tag:key=val> <command> [args...]")
-	}
-
-	target := remaining[0]
-	command := remaining[1]
-	cmdArgs := remaining[2:]
-
-	cfg, err := config.Load(config.Options{
-		NodeName:   *socketNodeName,
-		SocketPath: *socketPath,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	client := ipc.NewClient(cfg.SocketPath)
-	client.SetTimeout(time.Duration(*timeoutSec+5) * time.Second)
+	client.SetTimeout(time.Duration(timeoutSec+5) * time.Second)
 
 	ctx := context.Background()
 	req := &ipc.ExecRequest{
 		Target:         target,
 		Command:        command,
 		Args:           cmdArgs,
-		TimeoutSeconds: *timeoutSec,
+		TimeoutSeconds: timeoutSec,
 	}
 
 	resp, err := client.ExecCommand(ctx, req)
@@ -67,7 +39,7 @@ func RunExec(args []string) error {
 		return fmt.Errorf("herd exec failed: %w", err)
 	}
 
-	if *jsonOutput {
+	if jsonOutput {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		return enc.Encode(resp)

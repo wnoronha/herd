@@ -34,7 +34,7 @@ permissions:
 jobs:
   build-binaries:
     name: Build Multi-Platform Binaries
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5

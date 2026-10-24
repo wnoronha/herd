@@ -3,7 +3,9 @@
 Complete reference for Herd commands, options, arguments, and environment variables.
 
 See also:
+- [Agent Quickstart](agent-quickstart.md) — local Ollama, status/probe, troubleshooting
 - [Architecture Overview](architecture.md)
+- [Security Deep Dive](security-deep-dive.md)
 - [Actor-Style Mailbox](mailbox.md)
 - [Unified Logging Architecture](logging.md)
 - [Protocol Specification](protocol.md)
@@ -14,16 +16,23 @@ See also:
 
 ## 1. Global Flags & Environment Overrides
 
-Every command respects both CLI flags and environment variables:
+The CLI is built with [Cobra](https://github.com/spf13/cobra). Run `herd --help` or `herd <command> --help` for usage. Shell completion:
+
+```bash
+herd completion bash > /etc/bash_completion.d/herd   # or ~/.bash_completion
+herd completion zsh  >> ~/.zshrc                    # then enable compinit
+```
+
+Most commands share daemon connection flags (`--node-name`, `--socket`) as **persistent** root flags on `herd`. Each command also respects the environment variables below. Put global flags before the subcommand or immediately after it (standard Cobra parsing).
 
 | Setting | Flag | Environment Variable | Default |
 |---|---|---|---|
-| Node Name | `-node-name <string>` | `HERD_NODE_NAME` | System hostname |
-| Socket Path | `-socket <path>` | `HERD_SOCKET_PATH` | `$XDG_RUNTIME_DIR/herd-<node>.sock` |
+| Node Name | `--node-name <string>` | `HERD_NODE_NAME` | System hostname |
+| Socket Path | `--socket <path>` | `HERD_SOCKET_PATH` | `$XDG_RUNTIME_DIR/herd-<node>.sock` |
 | Log Level | *(daemon only)* | `HERD_LOG_LEVEL` | `info` (`debug`, `warn`, `error`) |
 | Log Format | *(daemon only)* | `HERD_LOG_FORMAT` | `console` (`json`) |
 
-The flags -bind-addr, -bind-port, -join, -data-dir, -config-dir, and -state-dir are specific to `herd daemon` and are documented in the Daemon section.
+The flags --bind-addr, --bind-port, --join, --advertise-addr, --mdns, --data-dir, --config-dir, and --state-dir are specific to `herd daemon` and are documented in the Daemon section.
 
 ---
 
@@ -37,11 +46,16 @@ Starts the background mesh node, handling gossip, peer discovery, and IPC.
 herd daemon
 
 # Start with custom name and join an existing Tailcat address
-HERD_NODE_NAME=node-2 herd daemon -join tcpGFw...<node-1-tailcat-addr>...
+HERD_NODE_NAME=node-2 herd daemon --join tcpGFw...<node-1-tailcat-addr>...
 
 # Start with auto-selected port and custom data directory
-herd daemon -node-name worker-1 -bind-port 0 -data-dir /var/lib/herd
+herd daemon --node-name worker-1 --bind-port 0 --data-dir /var/lib/herd
 ```
+
+Local discovery is on by default: nodes on the same LAN find each other
+with no flags (see `home-lan`). Disable with `--mdns=false`
+(`HERD_MDNS=0`); pin the announced LAN address with
+`--advertise-addr 192.168.1.50` (`HERD_ADVERTISE_ADDR`) on multihomed hosts.
 
 ---
 
@@ -117,6 +131,8 @@ Sets up a local TCP proxy tunnel forwarded securely to a target node's port.
 # Forward local port 8080 to port 80 on node-2
 herd forward 8080 node-2:80
 ```
+
+Target uses `<node>:<port>`; bracket IPv6 literals (`herd forward 8080 '[::1]:80'`). Ports must be 1-65535.
 
 ### `herd cp <source> <destination>`
 Copies files directly across nodes over encrypted multiplexed streams.
@@ -225,6 +241,8 @@ herd mail watch --json --ack
 
 ## 7. AI Agent Operations
 
+For a short **local Ollama** walkthrough (pull model → restart daemon → status → prompt), see **[Agent Quickstart](agent-quickstart.md)**.
+
 ### `herd agent init [flags]`
 Scaffolds a starter `AGENTS.md` file containing standard declarative personas (`coordinator`, `ops`, and `researcher`). Also runs automatically when `herd daemon` starts if no agent definitions exist in the node's configuration directory.
 
@@ -240,13 +258,62 @@ herd agent init --global
 
 # Force overwrite existing AGENTS.md
 herd agent init --force
+
+# Refresh personas on a running node (e.g. after upgrade adds dns_lookup to defaults)
+herd agent init --force --for-node my-node
 ```
 
 Flags:
 - `--dir <path>`: Directory to scaffold `AGENTS.md` into (default: current directory)
 - `--force`: Overwrite existing `AGENTS.md` file
 - `--global`: Scaffold into global user configuration (`~/.config/herd/agents`)
-- `--node-name <name>`: Target node name to scaffold in that node's config directory
+- `--for-node <name>`: Scaffold into that node's config directory (`~/.config/herd/<node>/agents`)
+
+### `herd agent status [flags]`
+Shows whether this node's agent will use an **LLM** (Gemini / OpenAI-compatible / explicit Ollama), **auto-probe local Ollama** when no cloud keys are set, or the **deterministic fallback** (`herd-builtin-coordinator`), where config came from (env vs KV), loaded personas, and optional role tool gaps. Use `--probe` to hit the configured endpoint at status time.
+
+```bash
+herd agent status
+herd agent status --json
+herd agent status --role researcher
+herd agent status --probe
+herd agent status --cluster
+```
+
+| Flag | Description |
+|------|-------------|
+| `--role` | Tool allowlist and missing common tools (e.g. `dns_lookup`) for one persona |
+| `--probe` | Live API check against the configured provider (uses quota/network) |
+| `--cluster` | Query all **alive** roster nodes via `herd exec <node> herd agent status --json` |
+| `--json` | Machine-readable output (cluster mode returns `{local, nodes, errors}`) |
+
+**`backend_class` values** (field `backend_class` in `--json`):
+
+| Value | Description |
+|-------|-------------|
+| `llm` | Cloud or explicit OpenAI-compatible backend configured |
+| `auto` | No cloud keys; each prompt auto-probes local Ollama before fallback |
+| `ollama` | Explicit `provider=ollama` (hard error if Ollama unavailable) |
+| `fallback` | Deterministic `herd-builtin-coordinator` only |
+
+When the backend is **`auto`**, **`fallback`**, or misconfigured **`llm`**, the command prints **Reason** and **Fix** hints. API keys are never printed in full.
+
+**Example (`herd agent status --json`**, zero cloud keys, Ollama running with models):
+
+```json
+{
+  "node_name": "node-1",
+  "backend_class": "auto",
+  "backend_provider": "ollama",
+  "model": "llama3.2",
+  "configured_llm": false,
+  "registered_tools_count": 18,
+  "reason": "No cloud LLM keys configured; each prompt auto-probes local Ollama ...",
+  "fix_hints": ["Start Ollama locally or set OPENAI_BASE_URL ..."]
+}
+```
+
+With `--probe` on an **`auto`** backend, Herd calls Ollama `GET /api/tags`. Probe fails if the server is reachable but **no models** are installed.
 
 ### `herd agent prompt "<task>" [flags]`
 Sends a task prompt to the local embedded AI agent (or a remote node agent). Supports activating declarative roles from Markdown definitions (`AGENTS.md` and `*.agent.md`).

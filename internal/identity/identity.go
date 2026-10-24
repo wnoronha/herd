@@ -117,7 +117,7 @@ func (id *Identity) Save(filePath string) error {
 		return fmt.Errorf("failed to create directory for identity: %w", err)
 	}
 
-	data, err := json.MarshalIndent(id, "", "  ")
+	data, err := json.MarshalIndent(id, "", "  ") //nolint:gosec // node identity (incl. private key) is persisted by design, file written 0600
 	if err != nil {
 		return fmt.Errorf("failed to marshal identity: %w", err)
 	}
@@ -144,7 +144,7 @@ func (id *Identity) Save(filePath string) error {
 
 // Load loads an identity from the given file path.
 func Load(filePath string) (*Identity, error) {
-	data, err := os.ReadFile(filePath)
+	data, err := os.ReadFile(filePath) //nolint:gosec // identity path derives from the node's own data dir
 	if err != nil {
 		return nil, fmt.Errorf("failed to read identity file: %w", err)
 	}

@@ -1,0 +1,31 @@
+name: Module hygiene
+
+on:
+  pull_request:
+  push:
+    branches:
+      - '**'
+      - '!beadwork'
+    tags-ignore:
+      - '**'
+  schedule:
+    - cron: "0 12 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tidy:
+    name: go mod tidy check
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Verify go mod tidy
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum

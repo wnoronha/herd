@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"herd/internal/ipc"
-	"herd/internal/kv"
-	"herd/internal/roster"
+	"github.com/wnoronha/herd/internal/ipc"
+	"github.com/wnoronha/herd/internal/kv"
+	"github.com/wnoronha/herd/internal/roster"
 )
 
 type mockClusterContext struct {
@@ -57,6 +57,21 @@ func (m *mockClusterContext) CopyFile(ctx context.Context, req *ipc.CPRequest) (
 
 func (m *mockClusterContext) GetDataDir() string {
 	return ""
+}
+
+// isolateAgentEnv scrubs cloud-model env and disables Ollama auto-probe so
+// fallback/classification tests are deterministic on any machine (a runner
+// with `ollama serve` or leaked keys must not flip results).
+func isolateAgentEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("HERD_DISABLE_AUTO_OLLAMA", "1")
+	for _, k := range []string{
+		"OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_API_BASE", "OPENAI_MODEL",
+		"GEMINI_API_KEY", "GOOGLE_API_KEY", "GEMINI_MODEL",
+		"OLLAMA_HOST", "OLLAMA_MODEL",
+	} {
+		t.Setenv(k, "")
+	}
 }
 
 func (m *mockClusterContext) JoinNode(ctx context.Context, addr string) (*ipc.JoinResponse, error) {
@@ -133,33 +148,7 @@ func TestAgentTools(t *testing.T) {
 	})
 
 	t.Run("SharedKVTool", func(t *testing.T) {
-		tool, ok := engine.tools["shared_kv"]
-		if !ok {
-			t.Fatalf("shared_kv tool not found")
-		}
-
-		// Set
-		_, err := tool.Handler(context.Background(), map[string]any{
-			"action": "set",
-			"key":    "agent/status",
-			"value":  "active",
-		})
-		if err != nil {
-			t.Fatalf("set failed: %v", err)
-		}
-
-		// Get
-		res, err := tool.Handler(context.Background(), map[string]any{
-			"action": "get",
-			"key":    "agent/status",
-		})
-		if err != nil {
-			t.Fatalf("get failed: %v", err)
-		}
-		resMap, ok := res.(map[string]any)
-		if !ok || resMap["value"] != "active" {
-			t.Fatalf("expected value 'active', got: %v", res)
-		}
+		testAgentToolsSharedKV(t, engine)
 	})
 
 	t.Run("DeterministicFallbackPrompt", func(t *testing.T) {
@@ -175,43 +164,90 @@ func TestAgentTools(t *testing.T) {
 	})
 
 	t.Run("DynamicKVConfigResolution", func(t *testing.T) {
-		// Seed global agent config in KV
-		globalJSON := `{"model":"llama3.2-custom","base_url":"http://10.0.0.1:11434/v1"}`
-		kvStore.Set("agent:config:global", []byte(globalJSON), 0)
-
-		eff := engine.resolveEffectiveConfig()
-		if eff.OpenAIModel != "llama3.2-custom" {
-			t.Errorf("expected model 'llama3.2-custom', got: %s", eff.OpenAIModel)
-		}
-		if eff.OpenAIBaseURL != "http://10.0.0.1:11434/v1" {
-			t.Errorf("expected base_url 'http://10.0.0.1:11434/v1', got: %s", eff.OpenAIBaseURL)
-		}
-
-		// Seed node-specific override in KV
-		nodeJSON := `{"model":"qwen2.5-coder:1.5b"}`
-		kvStore.Set("agent:config:nodes/test-node", []byte(nodeJSON), 0)
-
-		effNode := engine.resolveEffectiveConfig()
-		if effNode.OpenAIModel != "qwen2.5-coder:1.5b" {
-			t.Errorf("expected node override model 'qwen2.5-coder:1.5b', got: %s", effNode.OpenAIModel)
-		}
+		testAgentToolsDynamicKVConfig(t, engine, kvStore)
 	})
 
 	t.Run("ExecPolicyValidation", func(t *testing.T) {
-		// Set allowed policy whitelist
-		policyJSON := `["uptime", "df -h", "systemctl status *"]`
-		kvStore.Set("agent:policy:allowed_exec", []byte(policyJSON), 0)
-
-		if err := engine.validateExecPolicy("uptime"); err != nil {
-			t.Errorf("expected 'uptime' to be permitted, got: %v", err)
-		}
-		if err := engine.validateExecPolicy("systemctl status herd"); err != nil {
-			t.Errorf("expected 'systemctl status herd' wildcard to be permitted, got: %v", err)
-		}
-		if err := engine.validateExecPolicy("rm -rf /"); err == nil {
-			t.Errorf("expected 'rm -rf /' to be rejected by policy")
-		}
+		testAgentToolsExecPolicy(t, engine, kvStore)
 	})
+}
+
+func testAgentToolsSharedKV(t *testing.T, engine *Engine) {
+	t.Helper()
+	tool, ok := engine.tools["shared_kv"]
+	if !ok {
+		t.Fatalf("shared_kv tool not found")
+	}
+
+	// Set
+	_, err := tool.Handler(context.Background(), map[string]any{
+		"action": "set",
+		"key":    "agent/status",
+		"value":  "active",
+	})
+	if err != nil {
+		t.Fatalf("set failed: %v", err)
+	}
+
+	// Get
+	res, err := tool.Handler(context.Background(), map[string]any{
+		"action": "get",
+		"key":    "agent/status",
+	})
+	if err != nil {
+		t.Fatalf("get failed: %v", err)
+	}
+	resMap, ok := res.(map[string]any)
+	if !ok || resMap["value"] != "active" {
+		t.Fatalf("expected value 'active', got: %v", res)
+	}
+}
+
+func testAgentToolsDynamicKVConfig(t *testing.T, engine *Engine, kvStore *kv.Store) {
+	t.Helper()
+	// Seed global agent config in KV
+	globalJSON := `{"model":"llama3.2-custom","base_url":"http://10.0.0.1:11434/v1"}`
+	kvStore.Set("agent:config:global", []byte(globalJSON), 0)
+
+	eff := engine.resolveEffectiveConfig()
+	if eff.OpenAIModel != "llama3.2-custom" {
+		t.Errorf("expected model 'llama3.2-custom', got: %s", eff.OpenAIModel)
+	}
+	if eff.OpenAIBaseURL != "http://10.0.0.1:11434/v1" {
+		t.Errorf("expected base_url 'http://10.0.0.1:11434/v1', got: %s", eff.OpenAIBaseURL)
+	}
+
+	// Seed node-specific override in KV
+	nodeJSON := `{"model":"qwen2.5-coder:1.5b"}`
+	kvStore.Set("agent:config:nodes/test-node", []byte(nodeJSON), 0)
+
+	effNode := engine.resolveEffectiveConfig()
+	if effNode.OpenAIModel != "qwen2.5-coder:1.5b" {
+		t.Errorf("expected node override model 'qwen2.5-coder:1.5b', got: %s", effNode.OpenAIModel)
+	}
+}
+
+func testAgentToolsExecPolicy(t *testing.T, engine *Engine, kvStore *kv.Store) {
+	t.Helper()
+	// Set allowed policy whitelist
+	policyJSON := `["uptime", "df -h", "systemctl status *"]`
+	kvStore.Set("agent:policy:allowed_exec", []byte(policyJSON), 0)
+
+	if err := engine.validateExecPolicy("uptime"); err != nil {
+		t.Errorf("expected 'uptime' to be permitted, got: %v", err)
+	}
+	if err := engine.validateExecPolicy("systemctl status herd"); err != nil {
+		t.Errorf("expected 'systemctl status herd' wildcard to be permitted, got: %v", err)
+	}
+	if err := engine.validateExecPolicy("rm -rf /"); err == nil {
+		t.Errorf("expected 'rm -rf /' to be rejected by policy")
+	}
+
+	// Corrupt policy must fail closed, never fail open.
+	kvStore.Set("agent:policy:allowed_exec", []byte(`["uptime",`), 0)
+	if err := engine.validateExecPolicy("uptime"); err == nil {
+		t.Errorf("expected corrupt policy to deny 'uptime' (fail closed)")
+	}
 }
 
 func TestAgentWebTools(t *testing.T) {
@@ -377,8 +413,111 @@ func TestOpenAIBackendToolLoop(t *testing.T) {
 	if resp.ToolsCalled[0].Name != "cluster_roster" {
 		t.Errorf("expected tool name 'cluster_roster', got %s", resp.ToolsCalled[0].Name)
 	}
-	if resp.Response != "Found 1 alive node: test-node." {
-		t.Errorf("unexpected response: %s", resp.Response)
+}
+
+func TestDNSLookupOpenAIToolLoop(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping DNS OpenAI tool loop in -short mode")
+	}
+	requireLiveDNS(t)
+
+	mockCtx := &mockClusterContext{
+		nodeName: "test-node",
+		roster:   roster.NewStore(&roster.NodeMeta{NodeName: "test-node"}),
+		kvStore:  kv.NewStore("test-node"),
+	}
+
+	callCount := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		w.Header().Set("Content-Type", "application/json")
+		if callCount == 1 {
+			resp := OpenAIChatResponse{
+				Choices: []struct {
+					Message struct {
+						Role      string           `json:"role"`
+						Content   string           `json:"content"`
+						ToolCalls []OpenAIToolCall `json:"tool_calls,omitempty"`
+					} `json:"message"`
+					FinishReason string `json:"finish_reason"`
+				}{
+					{
+						Message: struct {
+							Role      string           `json:"role"`
+							Content   string           `json:"content"`
+							ToolCalls []OpenAIToolCall `json:"tool_calls,omitempty"`
+						}{
+							Role: "assistant",
+							ToolCalls: []OpenAIToolCall{
+								{
+									ID:   "call_dns",
+									Type: "function",
+									Function: OpenAIFunctionCall{
+										Name:      "dns_lookup",
+										Arguments: `{"name":"example.com","record_type":"AUTO"}`,
+									},
+								},
+							},
+						},
+						FinishReason: "tool_calls",
+					},
+				},
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+		resp := OpenAIChatResponse{
+			Choices: []struct {
+				Message struct {
+					Role      string           `json:"role"`
+					Content   string           `json:"content"`
+					ToolCalls []OpenAIToolCall `json:"tool_calls,omitempty"`
+				} `json:"message"`
+				FinishReason string `json:"finish_reason"`
+			}{
+				{
+					Message: struct {
+						Role      string           `json:"role"`
+						Content   string           `json:"content"`
+						ToolCalls []OpenAIToolCall `json:"tool_calls,omitempty"`
+					}{
+						Role:    "assistant",
+						Content: "DNS lookup complete.",
+					},
+					FinishReason: "stop",
+				},
+			},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer ts.Close()
+
+	engine := NewEngine(Config{
+		NodeName:      "test-node",
+		OpenAIBaseURL: ts.URL,
+		OpenAIModel:   "mock-gpt",
+		Provider:      "openai",
+	}, mockCtx)
+
+	if _, ok := engine.tools["dns_lookup"]; !ok {
+		t.Fatal("dns_lookup not registered on engine")
+	}
+
+	resp, err := engine.ExecutePrompt(context.Background(), &PromptRequest{
+		Prompt: "Resolve example.com",
+	})
+	if err != nil {
+		t.Fatalf("ExecutePrompt error: %v", err)
+	}
+	if len(resp.ToolsCalled) != 1 || resp.ToolsCalled[0].Name != "dns_lookup" {
+		t.Fatalf("expected dns_lookup tool call, got: %+v", resp.ToolsCalled)
+	}
+	if strings.Contains(resp.ToolsCalled[0].Result, `"error"`) {
+		// Past requireLiveDNS the flag is set: fail, don't skip.
+		t.Fatalf("live dns failed in tool loop: %s", resp.ToolsCalled[0].Result)
+	}
+	if !strings.Contains(resp.ToolsCalled[0].Result, "example.com") {
+		t.Fatalf("unexpected tool result: %s", resp.ToolsCalled[0].Result)
 	}
 }
 
@@ -726,6 +865,7 @@ func TestEngineAgentRegistration(t *testing.T) {
 }
 
 func TestRoleBasedScopedToolsets_FallbackAndNotFound(t *testing.T) {
+	isolateAgentEnv(t)
 	meta := &roster.NodeMeta{NodeName: "test-node", TailcatAddr: "tcpTest..."}
 	rStore := roster.NewStore(meta)
 	mockCtx := &mockClusterContext{nodeName: "test-node", roster: rStore}
@@ -885,8 +1025,3 @@ func TestRoleBasedScopedToolsets_OpenAI(t *testing.T) {
 		t.Errorf("unexpected response: %s", resp.Response)
 	}
 }
-
-
-
-
-

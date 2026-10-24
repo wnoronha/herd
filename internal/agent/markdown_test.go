@@ -3,6 +3,7 @@ package agent
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -228,6 +229,19 @@ func TestEnsureDefaultAgentsFile(t *testing.T) {
 	}
 	if len(agents) != 3 {
 		t.Fatalf("expected 3 default agents (coordinator, ops, researcher), got %d", len(agents))
+	}
+	var coordinator *AgentDefinition
+	for _, a := range agents {
+		if a.Role == "coordinator" {
+			coordinator = a
+			break
+		}
+	}
+	if coordinator == nil {
+		t.Fatal("coordinator persona missing from default template")
+	}
+	if !slices.Contains(coordinator.AllowedTools, "dns_lookup") {
+		t.Fatalf("expected dns_lookup on coordinator, got %v", coordinator.AllowedTools)
 	}
 
 	// 2. Second call should not overwrite

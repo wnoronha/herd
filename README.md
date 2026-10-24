@@ -1,6 +1,6 @@
 # Herd
 
-[![Go Report Card](https://goreportcard.com/badge/github.com/rtk-ai/herd)](https://goreportcard.com/report/github.com/rtk-ai/herd)
+[![Go Report Card](https://goreportcard.com/badge/github.com/wnoronha/herd)](https://goreportcard.com/report/github.com/wnoronha/herd)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Herd is a lightweight, zero-configuration peer-to-peer mesh clustering daemon and multi-tool CLI built in Go. It enables nodes to form decentralized, secure P2P clusters over WireGuard-powered transports with SWIM gossip membership, local Unix IPC control, distributed key-value storage, and remote execution.
@@ -12,9 +12,11 @@ Herd is a lightweight, zero-configuration peer-to-peer mesh clustering daemon an
 Complete documentation is organized into modular guides:
 
 - **[System Architecture](docs/architecture.md)** — Daemon controller, Tailcat WireGuard data plane, and SWIM gossip layer.
+- **[Security Deep Dive](docs/security-deep-dive.md)** — IPC/mesh threat surfaces, transport failure modes, and agent tool risks.
 - **[CLI & Daemon Commands](docs/commands.md)** — Full command reference (`status`, `roster`, `join`, `leave`, `exec`, `forward`, `cp`, `kv`, `mail`, `agent`, `docs`), arguments, and `HERD_*` environment variables.
 - **[Actor-Style Mailbox](docs/mailbox.md)** — Asynchronous actor messaging, reactive agent loop, thread tracking, and symmetric reply routing.
 - **[Unified Logging Architecture](docs/logging.md)** — Zap-backed abstract logger, subsystem namespacing, third-party adapters, and anti-pattern rules.
+- **[Agent Quickstart](docs/agent-quickstart.md)** — Local Ollama in minutes, `herd agent status --probe`, daemon/IPC notes, and troubleshooting.
 - **[Google ADK-Go Integration](docs/adk-integration.md)** — Embedded AI agent runtime, cluster tools (`ClusterRoster`, `ClusterExec`, `SharedKV`, `AgentMail`), and natural language cluster orchestration.
 - **[Wire Protocol & Transport](docs/protocol.md)** — Curve25519 ECDH handshake, ChaCha20-Poly1305 framing, stream multiplexing, and Tailcat DERP NAT traversal.
 - **[Distributed Key-Value Store](docs/distributed-kv.md)** — Last-Write-Wins (LWW) conflict resolution, naming conventions & schemas, gossip replication, and anti-entropy push/pull sync.
@@ -32,6 +34,9 @@ make build
 
 # Install to ~/.local/bin/herd
 make install
+
+# Or install from source (Go 1.21+)
+go install github.com/wnoronha/herd/cmd/herd@latest
 ```
 
 ### 2. Start Node 1 (Bootstrap Node)
@@ -56,6 +61,7 @@ herd roster
 
 # Write and read distributed KV data
 herd kv set cluster/motd "Decentralized mesh active"
+# Flags may appear after key/value: herd kv set cluster/motd "hello" --socket $HERD_SOCKET
 herd kv get cluster/motd
 
 # Send an asynchronous actor task to another node's mailbox
@@ -66,6 +72,11 @@ herd exec node-2 "hostname && uptime"
 
 # View embedded offline documentation guides
 herd docs mailbox
+
+# Local AI agent (Ollama auto-probe when no API keys — see docs/agent-quickstart.md)
+ollama pull llama3.2
+herd agent status --probe
+herd agent prompt "List alive nodes in the cluster"
 ```
 
 ---

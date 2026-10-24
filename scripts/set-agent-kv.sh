@@ -53,9 +53,9 @@ fi
 
 SOCKET_ARGS=()
 if [ -n "${HERD_SOCKET:-}" ]; then
-    SOCKET_ARGS=("-socket" "$HERD_SOCKET")
+    SOCKET_ARGS=("--socket" "$HERD_SOCKET")
 else
-    SOCKET_ARGS=("-node-name" "$NODE_NAME")
+    SOCKET_ARGS=("--node-name" "$NODE_NAME")
 fi
 
 "$HERD_BIN" kv set "${SOCKET_ARGS[@]}" agent:config:global "$CONFIG_JSON"

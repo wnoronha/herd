@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"herd/internal/identity"
-	"herd/internal/logger"
+	"github.com/wnoronha/herd/internal/identity"
+	"github.com/wnoronha/herd/internal/logger"
 )
 
 func init() {

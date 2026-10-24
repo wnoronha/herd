@@ -7,7 +7,7 @@ BIN_DIR := bin
 PREFIX ?= $(HOME)/.local
 INSTALL_BIN ?= $(PREFIX)/bin
 
-.PHONY: all build test lint clean vet check install
+.PHONY: all build test lint clean vet vuln check install
 
 all: check build
 
@@ -29,6 +29,9 @@ lint:
 vet:
 	go vet ./...
 
+vuln:
+	govulncheck ./...
+
 build-all:
 	mkdir -p $(BIN_DIR)/release
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o $(BIN_DIR)/release/$(BINARY_NAME)-linux-amd64 ./cmd/herd
@@ -40,5 +43,5 @@ build-all:
 clean:
 	rm -rf $(BIN_DIR) dist/ *.out coverage.txt
 
-check: vet lint test
+check: vet lint vuln test
 

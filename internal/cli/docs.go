@@ -1,35 +1,27 @@
 package cli
 
 import (
-	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"herd/docs"
+	"github.com/wnoronha/herd/docs"
 )
 
-// RunDocs handles the 'herd docs' subcommand.
-func RunDocs(args []string) error {
-	fs := flag.NewFlagSet("docs", flag.ExitOnError)
-	exportDir := fs.String("export", "", "Export all embedded docs to the specified directory")
-	all := fs.Bool("all", false, "Display all documentation guides concatenated")
-
-	if err := fs.Parse(args); err != nil {
-		return err
+func docsAction(topic string, exportDir string, all bool) error {
+	if exportDir != "" && all {
+		return fmt.Errorf("flags --export and --all are mutually exclusive")
+	}
+	if exportDir != "" {
+		return exportDocs(exportDir)
 	}
 
-	if *exportDir != "" {
-		return exportDocs(*exportDir)
-	}
-
-	remaining := fs.Args()
-	if len(remaining) == 0 && !*all {
+	if topic == "" && !all {
 		return listDocsSummary()
 	}
 
-	if *all {
+	if all {
 		allDocs, err := docs.ListDocs()
 		if err != nil {
 			return err
@@ -45,15 +37,6 @@ func RunDocs(args []string) error {
 			fmt.Println(content)
 		}
 		return nil
-	}
-
-	topic := remaining[0]
-	if topic == "export" {
-		targetDir := "./docs"
-		if len(remaining) > 1 {
-			targetDir = remaining[1]
-		}
-		return exportDocs(targetDir)
 	}
 
 	content, err := docs.GetDoc(topic)
@@ -89,7 +72,7 @@ func listDocsSummary() error {
 	fmt.Println("  herd docs commands           View complete CLI reference")
 	fmt.Println("  herd docs cross-platform     View compilation and Raspberry Pi guide")
 	fmt.Println("  herd docs adk-integration    View Google ADK agent integration guide")
-	fmt.Println("  herd docs export ./my-docs   Export all markdown files to a directory")
+	fmt.Println("  herd docs --export ./my-docs Export all markdown files to a directory")
 	return nil
 }
 
@@ -99,7 +82,7 @@ func exportDocs(targetDir string) error {
 		return fmt.Errorf("failed to list docs: %w", err)
 	}
 
-	if err := os.MkdirAll(targetDir, 0755); err != nil {
+	if err := os.MkdirAll(targetDir, 0755); err != nil { //nolint:gosec // export dir is user-chosen via --export; standard permissions
 		return fmt.Errorf("failed to create directory %s: %w", targetDir, err)
 	}
 
@@ -109,7 +92,7 @@ func exportDocs(targetDir string) error {
 			continue
 		}
 		destPath := filepath.Join(targetDir, d.Filename)
-		if err := os.WriteFile(destPath, []byte(content), 0644); err != nil {
+		if err := os.WriteFile(destPath, []byte(content), 0644); err != nil { //nolint:gosec // docs export targets a user-chosen dir; rendered guides are world-readable by design
 			return fmt.Errorf("failed to write %s: %w", destPath, err)
 		}
 		fmt.Printf("Exported %s\n", destPath)

@@ -24,6 +24,34 @@ This project uses ICM for persistent memory across sessions.
 - Store resolved errors: `icm store -t errors-resolved -c "description" -i high -k "keywords"`
 - Store context summaries: `icm store -t context-herd -c "summary" -i high`
 
+## Documentation
+
+User-facing docs live under `docs/` and are **embedded** in the binary (`go:embed *.md`). Keep them aligned with shipped behavior in the **same change** as code.
+
+When you change agent providers, tools, CLI commands, or IPC:
+
+- [docs/agent-quickstart.md](docs/agent-quickstart.md) — onboarding and troubleshooting
+- [docs/commands.md](docs/commands.md) — CLI reference
+- [docs/adk-integration.md](docs/adk-integration.md) — runtime, tools, providers
+- [README.md](README.md) — index and quickstart snippets
+
+Verify with `go test ./docs/...` and `herd docs agent-quickstart` after `make build`.
+
+## Herd node personas (`AGENTS.md` on cluster nodes)
+
+This repository root **`AGENTS.md`** is **Cursor/agent instructions for contributing to Herd**. It is not the embedded mesh persona file.
+
+Node personas live at `~/.config/herd/<node>/agents/AGENTS.md` (seeded by `herd daemon` or `herd agent init`). The canonical default template is `DefaultAgentsTemplate` in [internal/agent/markdown.go](internal/agent/markdown.go); [examples/agents/AGENTS.md](examples/agents/AGENTS.md) mirrors it for review (keep in sync when editing defaults).
+
+After changing default tools or persona text in code, refresh deployed nodes:
+
+```bash
+herd agent init --force --for-node "$HERD_NODE_NAME"
+# restart daemon so it reloads markdown definitions
+```
+
+See [docs/agent-quickstart.md](docs/agent-quickstart.md) and [docs/adk-integration.md](docs/adk-integration.md) §4.
+
 <!-- rtk-instructions v2 -->
 ## RTK (Rust Token Killer) - Token-Optimized Commands
 

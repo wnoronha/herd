@@ -3,44 +3,25 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"os"
-	"time"
-
-	"herd/internal/config"
-	"herd/internal/ipc"
 )
 
-// RunStatus executes the 'herd status' command.
-func RunStatus(args []string) error {
-	fs := flag.NewFlagSet("status", flag.ExitOnError)
-	nodeName := fs.String("node-name", "", "Node name to target socket for")
-	socketPath := fs.String("socket", "", "Daemon Unix domain socket path")
-	jsonOutput := fs.Bool("json", false, "Output status as JSON")
-
-	if err := fs.Parse(args); err != nil {
+func statusAction(jsonOutput bool) error {
+	client, cfg, err := daemonClient()
+	if err != nil {
 		return err
 	}
 
-	cfg, err := config.Load(config.Options{
-		NodeName:   *nodeName,
-		SocketPath: *socketPath,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	client := ipc.NewClient(cfg.SocketPath)
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultIPCTimeout)
 	defer cancel()
 
 	status, err := client.GetStatus(ctx)
 	if err != nil {
-		return fmt.Errorf("herd daemon is not running or unreachable at '%s'.\nStart the daemon with 'herd daemon': %w", cfg.SocketPath, err)
+		return DaemonUnreachableError(cfg, err)
 	}
 
-	if *jsonOutput {
+	if jsonOutput {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		return enc.Encode(status)

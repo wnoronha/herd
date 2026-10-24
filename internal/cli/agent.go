@@ -3,96 +3,34 @@ package cli
 import (
 	"bufio"
 	"context"
-	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"herd/internal/agent"
-	"herd/internal/config"
-	"herd/internal/ipc"
+	"github.com/wnoronha/herd/internal/agent"
+	"github.com/wnoronha/herd/internal/config"
+	"github.com/wnoronha/herd/internal/ipc"
 )
 
-// RunAgent handles the "agent" CLI command and its subcommands.
-func RunAgent(args []string) error {
-	if len(args) == 0 {
-		printAgentUsage()
-		return nil
-	}
-
-	subcommand := args[0]
-	subArgs := args[1:]
-
-	switch subcommand {
-	case "init":
-		return runAgentInit(subArgs)
-	case "prompt":
-		return runAgentPrompt(subArgs)
-	case "chat":
-		return runAgentChat(subArgs)
-	case "tools":
-		return runAgentTools(subArgs)
-	case "-h", "--help", "help":
-		printAgentUsage()
-		return nil
-	default:
-		// If first arg isn't a known subcommand, treat entire args as a prompt
-		return runAgentPrompt(args)
-	}
-}
-
-func printAgentUsage() {
-	fmt.Println(`Usage:
-  herd agent init [--dir <path>] [--force]
-  herd agent prompt "<task>" [--target <node>] [--role <name>]
-  herd agent chat [--target <node>] [--role <name>]
-  herd agent tools
-
-Commands:
-  init      Scaffold starter AGENTS.md with default personas (coordinator, ops, researcher)
-  prompt    Send a natural language task to the local or remote node agent
-  chat      Start an interactive conversation with the node agent
-  tools     List all available cluster tools registered on the agent
-
-Flags:
-  -dir <path>          Directory to initialize AGENTS.md in (for 'init')
-  -force               Overwrite existing AGENTS.md (for 'init')
-  -global              Initialize into user config directory (~/.config/herd/agents)
-  -socket <path>       Custom daemon Unix domain socket
-  -target <node>       Target a specific cluster node agent
-  -model <name>        Override LLM model (e.g. gemini-3.8-flash, gemma2:2b)
-  -role <name>         Activate specific declarative agent role (e.g. researcher, ops)`)
-}
-
-func runAgentInit(args []string) error {
-	fs := flag.NewFlagSet("agent init", flag.ExitOnError)
-	dir := fs.String("dir", ".", "Directory to scaffold AGENTS.md in")
-	nodeName := fs.String("node-name", "", "Target node name to scaffold in node config directory")
-	force := fs.Bool("force", false, "Overwrite existing AGENTS.md if present")
-	global := fs.Bool("global", false, "Scaffold into global user config directory (~/.config/herd/agents)")
-
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-
-	targetDir := *dir
-	if *global {
+func agentInitAction(dir, forNode string, force, global bool) error {
+	targetDir := dir
+	if global {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return fmt.Errorf("failed to get user home directory: %w", err)
 		}
 		targetDir = filepath.Join(home, ".config", "herd", "agents")
-	} else if *nodeName != "" {
-		cfg, err := config.Load(config.Options{NodeName: *nodeName})
+	} else if forNode != "" {
+		cfg, err := config.Load(config.Options{NodeName: forNode})
 		if err != nil {
 			return fmt.Errorf("failed to load node config: %w", err)
 		}
 		targetDir = filepath.Join(cfg.ConfigDir, "agents")
 	}
 
-	targetFile, created, err := agent.EnsureDefaultAgentsFile(targetDir, *force)
+	targetFile, created, err := agent.EnsureDefaultAgentsFile(targetDir, force)
 	if err != nil {
 		return fmt.Errorf("failed to initialize agents markdown: %w", err)
 	}
@@ -108,34 +46,12 @@ func runAgentInit(args []string) error {
 	return nil
 }
 
-func runAgentPrompt(args []string) error {
-	fs := flag.NewFlagSet("agent prompt", flag.ExitOnError)
-	nodeName := fs.String("node-name", "", "Node name to target socket for")
-	socketPath := fs.String("socket", "", "Custom Unix domain socket path")
-	targetNode := fs.String("target", "", "Target node name")
-	model := fs.String("model", "", "Model name")
-	role := fs.String("role", "", "Agent role or persona name (e.g. researcher, ops)")
-
-	if err := fs.Parse(args); err != nil {
+func agentPromptAction(promptText, targetNode, model, role string) error {
+	client, cfg, err := daemonClient()
+	if err != nil {
 		return err
 	}
 
-	remaining := fs.Args()
-	if len(remaining) == 0 {
-		return fmt.Errorf("prompt cannot be empty\nUsage: herd agent prompt \"<task>\"")
-	}
-
-	promptText := strings.Join(remaining, " ")
-
-	cfg, err := config.Load(config.Options{
-		NodeName:   *nodeName,
-		SocketPath: *socketPath,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	client := ipc.NewClient(cfg.SocketPath)
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
@@ -143,9 +59,9 @@ func runAgentPrompt(args []string) error {
 
 	req := &ipc.AgentPromptRequest{
 		Prompt:     promptText,
-		TargetNode: *targetNode,
-		Model:      *model,
-		Role:       *role,
+		TargetNode: targetNode,
+		Model:      model,
+		Role:       role,
 	}
 
 	resp, err := client.AgentPrompt(ctx, req)
@@ -172,8 +88,8 @@ func runAgentPrompt(args []string) error {
 	}
 	roleStr := resp.AgentRole
 	if roleStr == "" {
-		if *role != "" {
-			roleStr = *role
+		if role != "" {
+			roleStr = role
 		} else {
 			roleStr = "coordinator"
 		}
@@ -183,27 +99,11 @@ func runAgentPrompt(args []string) error {
 	return nil
 }
 
-func runAgentChat(args []string) error {
-	fs := flag.NewFlagSet("agent chat", flag.ExitOnError)
-	nodeName := fs.String("node-name", "", "Node name to target socket for")
-	socketPath := fs.String("socket", "", "Custom Unix domain socket path")
-	targetNode := fs.String("target", "", "Target node name")
-	model := fs.String("model", "", "Model name")
-	role := fs.String("role", "", "Agent role or persona name (e.g. researcher, ops)")
-
-	if err := fs.Parse(args); err != nil {
+func agentChatAction(targetNode, model, role string) error {
+	client, cfg, err := daemonClient()
+	if err != nil {
 		return err
 	}
-
-	cfg, err := config.Load(config.Options{
-		NodeName:   *nodeName,
-		SocketPath: *socketPath,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	client := ipc.NewClient(cfg.SocketPath)
 
 	fmt.Println("Starting Herd Agent Interactive Chat Session (type 'exit' or 'quit' to end)")
 	fmt.Println("-----------------------------------------------------------------------------")
@@ -226,9 +126,9 @@ func runAgentChat(args []string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		req := &ipc.AgentPromptRequest{
 			Prompt:     line,
-			TargetNode: *targetNode,
-			Model:      *model,
-			Role:       *role,
+			TargetNode: targetNode,
+			Model:      model,
+			Role:       role,
 		}
 
 		resp, err := client.AgentPrompt(ctx, req)
@@ -252,8 +152,8 @@ func runAgentChat(args []string) error {
 		}
 		chatRole := resp.AgentRole
 		if chatRole == "" {
-			if *role != "" {
-				chatRole = *role
+			if role != "" {
+				chatRole = role
 			} else {
 				chatRole = "coordinator"
 			}
@@ -264,7 +164,7 @@ func runAgentChat(args []string) error {
 	return nil
 }
 
-func runAgentTools(args []string) error {
+func agentToolsAction() error {
 	tools := agent.BuildDefaultTools(nil)
 	fmt.Println("=== Registered Herd Agent Tools ===")
 	fmt.Println()

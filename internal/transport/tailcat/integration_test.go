@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/hashicorp/memberlist"
-	"herd/internal/identity"
-	"herd/internal/roster"
+	"github.com/wnoronha/herd/internal/identity"
+	"github.com/wnoronha/herd/internal/roster"
 )
 
 type testNode struct {

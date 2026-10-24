@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"herd/internal/ipc"
-	"herd/internal/kv"
-	"herd/internal/mailbox"
-	"herd/internal/roster"
+	"github.com/wnoronha/herd/internal/ipc"
+	"github.com/wnoronha/herd/internal/kv"
+	"github.com/wnoronha/herd/internal/mailbox"
+	"github.com/wnoronha/herd/internal/roster"
 )
 
 // ClusterContext provides access to daemon cluster primitives for tool execution.
@@ -39,6 +39,7 @@ func BuildDefaultTools(cctx ClusterContext) []ToolDefinition {
 		buildAgentReadMailboxTool(cctx),
 		buildFetchURLTool(),
 		buildGoogleSearchTool(),
+		buildDNSLookupTool(),
 		buildFileReadTool(),
 		buildFileWriteTool(),
 		buildArtifactStoreTool(cctx),
@@ -74,12 +75,12 @@ func buildClusterRosterTool(cctx ClusterContext) ToolDefinition {
 
 			members := store.GetMembers()
 			type NodeInfo struct {
-				Name      string `json:"name"`
-				Status    string `json:"status"`
-				Address   string `json:"address"`
-				Port      uint16 `json:"port"`
-				RTTMs     int64  `json:"rtt_ms,omitempty"`
-				IsSelf    bool   `json:"is_self"`
+				Name    string `json:"name"`
+				Status  string `json:"status"`
+				Address string `json:"address"`
+				Port    uint16 `json:"port"`
+				RTTMs   int64  `json:"rtt_ms,omitempty"`
+				IsSelf  bool   `json:"is_self"`
 			}
 
 			var res []NodeInfo
@@ -525,5 +526,3 @@ func buildAgentReadMailboxTool(cctx ClusterContext) ToolDefinition {
 		},
 	}
 }
-
-

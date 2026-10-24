@@ -124,7 +124,7 @@ func ParseAgentsMarkdown(data []byte) ([]*AgentDefinition, error) {
 
 // ParseAgentMarkdownFile loads and parses a single agent from a file, inferring name/role if omitted.
 func ParseAgentMarkdownFile(filePath string) (*AgentDefinition, error) {
-	data, err := os.ReadFile(filePath)
+	data, err := os.ReadFile(filePath) //nolint:gosec // paths come from workspace directory traversal or explicit user flags
 	if err != nil {
 		return nil, fmt.Errorf("failed to read agent file %s: %w", filePath, err)
 	}
@@ -140,7 +140,7 @@ func ParseAgentMarkdownFile(filePath string) (*AgentDefinition, error) {
 
 // ParseAgentsMarkdownFile loads one or more agents from a file.
 func ParseAgentsMarkdownFile(filePath string) ([]*AgentDefinition, error) {
-	data, err := os.ReadFile(filePath)
+	data, err := os.ReadFile(filePath) //nolint:gosec // paths come from workspace directory traversal or explicit user flags
 	if err != nil {
 		return nil, fmt.Errorf("failed to read agent file %s: %w", filePath, err)
 	}
@@ -179,7 +179,7 @@ func ParseAgentsYAML(data []byte) ([]*AgentDefinition, error) {
 
 // ParseAgentsYAMLFile loads one or more agents from a YAML file.
 func ParseAgentsYAMLFile(filePath string) ([]*AgentDefinition, error) {
-	data, err := os.ReadFile(filePath)
+	data, err := os.ReadFile(filePath) //nolint:gosec // paths come from workspace directory traversal or explicit user flags
 	if err != nil {
 		return nil, fmt.Errorf("failed to read agent YAML file %s: %w", filePath, err)
 	}
@@ -293,6 +293,7 @@ agents:
       - agent_read_mailbox
       - fetch_url
       - google_search
+      - dns_lookup
   - name: ops
     role: ops
     description: Cluster infrastructure and remote system operations specialist
@@ -300,21 +301,25 @@ agents:
       - cluster_roster
       - cluster_exec
       - cluster_cp
+      - dns_lookup
   - name: researcher
     role: researcher
     description: Web research and cluster intelligence specialist
     tools:
       - google_search
       - fetch_url
+      - dns_lookup
       - shared_kv
 ---
 # Herd Node Agent Personas
 
 You are an autonomous AI agent operating within the Herd decentralized P2P cluster mesh.
 Each persona is tuned for specific tasks:
-- **coordinator**: Orchestrates cluster discovery, actor mailboxes, and inter-agent coordination.
-- **ops**: Executes systems administration and file synchronization across cluster nodes.
-- **researcher**: Gathers web documentation and external intelligence, saving findings to KV.
+- **coordinator**: Orchestrates cluster discovery, actor mailboxes, and inter-agent coordination across the full toolset.
+- **ops**: Executes systems administration and file synchronization; use **dns_lookup** for connectivity and service record checks before remote exec.
+- **researcher**: Gathers web documentation and external intelligence (**google_search**, **fetch_url**, **dns_lookup**), saving findings to **shared_kv**.
+
+When no cloud API keys are configured, the runtime auto-probes local **Ollama** at http://localhost:11434 before deterministic fallback. Ensure models are pulled (ollama pull llama3.2) and restart **herd daemon** after upgrading Herd.
 `
 
 // EnsureDefaultAgentsFile scaffolds starter agent definitions into targetDir if no agent files exist.
@@ -341,11 +346,11 @@ func EnsureDefaultAgentsFile(targetDir string, force ...bool) (string, bool, err
 		}
 	}
 
-	if err := os.MkdirAll(targetDir, 0755); err != nil {
+	if err := os.MkdirAll(targetDir, 0755); err != nil { //nolint:gosec // standard agents-dir permissions for scaffolding
 		return "", false, fmt.Errorf("failed to create agents directory %s: %w", targetDir, err)
 	}
 
-	if err := os.WriteFile(targetFile, []byte(DefaultAgentsTemplate), 0644); err != nil {
+	if err := os.WriteFile(targetFile, []byte(DefaultAgentsTemplate), 0644); err != nil { //nolint:gosec // AGENTS.md scaffold must be readable by editors and agents
 		return "", false, fmt.Errorf("failed to write starter AGENTS.md to %s: %w", targetFile, err)
 	}
 

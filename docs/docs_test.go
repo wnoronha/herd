@@ -15,18 +15,28 @@ func TestEmbeddedDocs(t *testing.T) {
 		t.Fatalf("expected embedded documentation topics, found none")
 	}
 
-	expectedTopics := []string{"architecture", "commands", "cross-platform", "protocol"}
-	found := make(map[string]bool)
+	// Structural checks (no hardcoded topic allowlist): every embedded
+	// guide must be retrievable with a title and non-empty content so new
+	// guides don't require a test bump.
+	seen := make(map[string]bool)
 	for _, d := range docList {
-		found[d.Slug] = true
+		if d.Slug == "" {
+			t.Errorf("document %q has empty slug", d.Title)
+		}
+		if seen[d.Slug] {
+			t.Errorf("duplicate embedded slug %q", d.Slug)
+		}
+		seen[d.Slug] = true
 		if d.Title == "" {
 			t.Errorf("document %s has empty title", d.Slug)
 		}
-	}
-
-	for _, exp := range expectedTopics {
-		if !found[exp] {
-			t.Errorf("expected topic %s to be embedded", exp)
+		content, err := GetDoc(d.Slug)
+		if err != nil {
+			t.Errorf("GetDoc(%q) failed: %v", d.Slug, err)
+			continue
+		}
+		if len(strings.TrimSpace(content)) == 0 {
+			t.Errorf("document %s has empty content", d.Slug)
 		}
 	}
 

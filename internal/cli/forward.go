@@ -2,62 +2,32 @@ package cli
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"net"
 	"os"
 	"os/signal"
 	"strconv"
-	"strings"
 	"syscall"
 
-	"herd/internal/config"
-	"herd/internal/ipc"
-	"herd/internal/subsys"
+	"github.com/wnoronha/herd/internal/subsys"
 )
 
-// RunForward executes the 'herd forward' command.
-func RunForward(args []string) error {
-	fs := flag.NewFlagSet("forward", flag.ExitOnError)
-	nodeName := fs.String("node-name", "", "Local node daemon to query for peer discovery")
-	socketPath := fs.String("socket", "", "Daemon Unix domain socket path")
-	bindHost := fs.String("bind", "127.0.0.1", "Local IP interface to bind listener to")
-
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-
-	remaining := fs.Args()
-	if len(remaining) < 2 {
-		return fmt.Errorf("usage: herd forward [flags] <local-port> <target-node>:<target-port>")
-	}
-
-	localPort, err := strconv.Atoi(remaining[0])
-	if err != nil || localPort <= 0 {
-		return fmt.Errorf("invalid local port: %s", remaining[0])
-	}
-
-	targetExpr := remaining[1]
-	parts := strings.Split(targetExpr, ":")
-	if len(parts) != 2 {
+func forwardAction(localPort int, targetExpr, bindHost string) error {
+	// SplitHostPort handles IPv6 literals ([::1]:80) as well as host:port.
+	targetNode, portStr, err := net.SplitHostPort(targetExpr)
+	if err != nil || targetNode == "" {
 		return fmt.Errorf("target must be in format <target-node>:<target-port>, got %s", targetExpr)
 	}
 
-	targetNode := parts[0]
-	targetPort, err := strconv.Atoi(parts[1])
-	if err != nil || targetPort <= 0 {
-		return fmt.Errorf("invalid target port: %s", parts[1])
+	targetPort, err := strconv.Atoi(portStr)
+	if err != nil || targetPort < 1 || targetPort > 65535 {
+		return fmt.Errorf("invalid target port %q: must be 1-65535", portStr)
 	}
 
-	cfg, err := config.Load(config.Options{
-		NodeName:   *nodeName,
-		SocketPath: *socketPath,
-	})
+	client, _, err := daemonClient()
 	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
+		return err
 	}
-
-	client := ipc.NewClient(cfg.SocketPath)
 	roster, err := client.GetRoster(context.Background())
 	targetAddr := ""
 	if err == nil {
@@ -72,7 +42,7 @@ func RunForward(args []string) error {
 		targetAddr = net.JoinHostPort(targetNode, strconv.Itoa(targetPort))
 	}
 
-	localListen := net.JoinHostPort(*bindHost, strconv.Itoa(localPort))
+	localListen := net.JoinHostPort(bindHost, strconv.Itoa(localPort))
 	pf := subsys.NewPortForwarder(localListen, targetAddr, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())

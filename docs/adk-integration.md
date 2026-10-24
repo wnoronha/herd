@@ -3,6 +3,7 @@
 Specification and design for embedding Google's Gemini Go SDK (`google.golang.org/genai`) directly into Herd to form a decentralized autonomous agent mesh. The implementation uses the Gemini Go SDK, not an ADK package.
 
 See also:
+- [Agent Quickstart](agent-quickstart.md) — local Ollama, `herd agent status`, troubleshooting
 - [Architecture Overview](architecture.md)
 - [Actor-Style Mailbox Subsystem](mailbox.md)
 - [Unified Logging Architecture](logging.md)
@@ -37,7 +38,7 @@ graph TD
         FILE_TOOLS["Local File Tools (file_read / file_write)"]
         ARTIFACT_TOOL["ArtifactStoreTool (artifact_store)"]
         RUN_AGENT_TOOL["RunAgentTool (run_agent)"]
-        WEB_TOOLS["Web Tools (fetch_url / google_search)"]
+        WEB_TOOLS["Web & DNS Tools (fetch_url / google_search / dns_lookup)"]
     end
 
     subgraph LLMProviders["Model Providers"]
@@ -136,6 +137,13 @@ The agent runtime is equipped with Go functions implementing the ADK Tool interf
   - `query` (`string`): The search query keywords.
   - `num_results` (`int`): Optional number of search results to return (default: 5, max: 10).
 - **Return Data**: List of search results with title, link snippet, and URL.
+
+### 2.9.1 `DNSLookupTool` (`dns_lookup`)
+- **Purpose**: Resolve DNS records for troubleshooting connectivity, mail routing, and service discovery.
+- **Input Parameters**:
+  - `name` (`string`): Hostname, domain, or IP (for PTR).
+  - `record_type` (`string`): `A`, `AAAA`, `MX`, `TXT`, `NS`, `CNAME`, `PTR`, `SRV`, or `AUTO` (default).
+- **Return Data**: Normalized record list with type-specific fields (`value`, `host`, `priority`, etc.).
 
 ### 2.10 `FileReadTool` (`file_read`)
 - **Purpose**: Direct local filesystem reading on the current node with line offset and count limit (safety capped at 10MB to prevent memory exhaustion).
@@ -253,15 +261,16 @@ temperature: 0.2
 tools:
   - google_search
   - fetch_url
+  - dns_lookup
   - shared_kv
 ---
 # Researcher Persona Instructions
 
 You are an expert research agent embedded in the Herd cluster mesh.
 Your primary objective is to search documentation, fetch remote endpoint status,
-and persist structured intelligence into the cluster's distributed KV store.
+resolve DNS when debugging connectivity, and persist structured intelligence into the cluster's distributed KV store.
 
-Always verify facts using `google_search` before storing conclusions in `shared_kv`.
+Use `dns_lookup` for A/AAAA/MX/TXT checks; verify external facts with `google_search` before storing conclusions in `shared_kv`.
 ```
 
 #### Frontmatter Attributes:
@@ -284,25 +293,39 @@ An `AGENTS.md` file can define multiple agents simultaneously using an `agents:`
 ```markdown
 ---
 agents:
-  - name: ops
-    role: ops
-    description: Cluster infrastructure operator
-    model: gpt-4o-mini
+  - name: coordinator
+    role: coordinator
+    description: Primary cluster coordinator
     tools:
       - cluster_roster
       - cluster_exec
       - cluster_cp
+      - shared_kv
+      - agent_send_mail
+      - agent_broadcast
+      - agent_read_mailbox
+      - fetch_url
+      - google_search
+      - dns_lookup
+  - name: ops
+    role: ops
+    description: Cluster infrastructure operator
+    tools:
+      - cluster_roster
+      - cluster_exec
+      - cluster_cp
+      - dns_lookup
   - name: researcher
     role: researcher
     description: Web research specialist
-    model: gemini-3.8-flash
     tools:
       - google_search
       - fetch_url
+      - dns_lookup
       - shared_kv
 ---
 # Base Cluster Operating Guidelines
-You are a node agent within the Herd decentralized cluster. Respect node security policies.
+You are a node agent within the Herd decentralized cluster. Respect node security policies and `agent:policy:allowed_exec`.
 ```
 
 ### 4.3 Standard Discovery Locations & Auto-Seeding
@@ -323,6 +346,9 @@ herd agent init
 
 # Scaffold into global user configuration
 herd agent init --global
+
+# Refresh node personas after upgrading Herd (adds new default tools such as dns_lookup)
+herd agent init --force --for-node "$(herd status --json 2>/dev/null | jq -r .node_name // env.HERD_NODE_NAME)"
 ```
 
 ### 4.4 Role-Based Tool Scoping & Security Enforcement
@@ -364,15 +390,32 @@ sub_agents:
 
 ## 5. Supported Model Providers
 
-The agent engine defaults to the standard **OpenAI `/v1` endpoint** supported by OpenAI, Ollama, vLLM, Groq, LiteLLM, and local inference servers, with fallback to Google Gemini and zero-key offline heuristics:
+The agent engine picks backends in order: **Gemini** (when configured), **OpenAI-compatible** (when `OPENAI_API_KEY`, `OPENAI_BASE_URL`, or `provider=openai`), then **automatic local Ollama** when no cloud keys are set (probes `http://localhost:11434/v1` with tools, then native `/api/chat`), and finally the **deterministic fallback** if Ollama is unreachable. Set `provider=ollama` to require Ollama (errors if down). Override defaults with env or `agent:config:*` KV.
 
 | Provider | Environment Variables | Default Endpoint / Model | Best Used For |
 |---|---|---|---|
-| **OpenAI-Compatible (Default)** | `OPENAI_BASE_URL`<br>`OPENAI_API_KEY`<br>`OPENAI_MODEL` | `http://localhost:11434/v1`<br>`gpt-4o-mini` / `llama3.2` | Universal support across OpenAI, Local Ollama, vLLM, Groq, DeepSeek |
+| **OpenAI-Compatible** | `OPENAI_BASE_URL`<br>`OPENAI_API_KEY`<br>`OPENAI_MODEL` | User-defined or `http://localhost:11434/v1`<br>`gpt-4o-mini` / `llama3.2` | OpenAI, Ollama, vLLM, Groq, DeepSeek when explicitly configured |
+| **Auto Ollama (zero-key)** | *(optional)* `OLLAMA_MODEL` | `http://localhost:11434/v1` → `llama3.2` | Local Ollama with no KV/env beyond `ollama serve` |
 | **Google Gemini API** | `GEMINI_API_KEY` | `gemini-3.8-flash` | Cloud reasoning with Gemini Go SDK |
-| **Deterministic Fallback** | *(None required)* | Offline rule-based router | Air-gapped, zero-key local mesh discovery |
+| **Deterministic Fallback** | *(None required)* | Offline rule-based router | Air-gapped mesh when no LLM is reachable |
 
 Vertex AI is not currently supported. Use the Gemini API directly via GEMINI_API_KEY.
+
+### 5.1 Troubleshooting (local Ollama & status)
+
+Use **`herd agent status --probe`** before debugging prompts. Common cases:
+
+| Observation | What it means | Action |
+|-------------|---------------|--------|
+| `backend_class: "auto"` | Zero cloud keys; runtime probes Ollama per prompt | Ensure `ollama serve` and `ollama pull <model>` |
+| Probe error: no models installed | `GET /api/tags` returned an empty list | `ollama pull llama3.2` or set `OLLAMA_MODEL` |
+| Prompt shows `herd-builtin-coordinator` | Auto-probe failed silently before LLM | Read `Ollama auto-probe:` line in response; restart daemon after upgrading Herd |
+| `unknown method: AgentStatus` | CLI newer than running daemon | Rebuild and restart `herd daemon` |
+| Explicit `provider=ollama` | Ollama is mandatory | Fix Ollama or change KV; no silent fallback |
+
+**Daemon vs CLI:** Agent commands use IPC to the long-running daemon. Rebuild alone is not enough — restart the daemon. See [Agent Quickstart](agent-quickstart.md).
+
+**Model selection:** Auto-Ollama prefers `OLLAMA_MODEL`, then replaces cloud defaults (`gpt-4o-mini`, `gemini-*`) with `llama3.2`, then any installed tag from Ollama’s model list.
 
 ---
 

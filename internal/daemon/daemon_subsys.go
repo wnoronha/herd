@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"herd/internal/agent"
-	"herd/internal/ipc"
-	"herd/internal/subsys"
-	"herd/internal/transport/tailcat"
+	"github.com/wnoronha/herd/internal/agent"
+	"github.com/wnoronha/herd/internal/ipc"
+	"github.com/wnoronha/herd/internal/subsys"
+	"github.com/wnoronha/herd/internal/transport/tailcat"
 )
 
 // handleExecStream handles an incoming StreamTypeExec stream for remote command execution.
@@ -29,9 +29,12 @@ func (d *Daemon) handleExecStream(conn net.Conn) {
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	res := subsys.ExecuteLocal(context.Background(), d.Config.NodeName, req.Command, req.Args, timeout)
+	execCtx := d.getRunCtx()
+	res := subsys.ExecuteLocal(execCtx, d.Config.NodeName, req.Command, req.Args, timeout)
 	enc := json.NewEncoder(conn)
-	_ = enc.Encode(res)
+	if err := enc.Encode(res); err != nil {
+		d.Logger.Named("exec_stream").Warnf("failed to encode exec response: %v", err)
+	}
 }
 
 // handleAgentStream handles an incoming StreamTypeAgent stream for direct agent prompt invocation.
@@ -42,7 +45,8 @@ func (d *Daemon) handleAgentStream(conn net.Conn) {
 	if err := dec.Decode(&req); err != nil {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	parent := d.getRunCtx()
+	ctx, cancel := context.WithTimeout(parent, 3*time.Minute)
 	defer cancel()
 
 	var resp *agent.PromptResponse
@@ -55,10 +59,14 @@ func (d *Daemon) handleAgentStream(conn net.Conn) {
 
 	enc := json.NewEncoder(conn)
 	if err != nil {
-		_ = enc.Encode(map[string]any{"error": err.Error()})
+		if encErr := enc.Encode(map[string]any{"error": err.Error()}); encErr != nil {
+			d.Logger.Named("agent_stream").Warnf("failed to encode agent error: %v", encErr)
+		}
 		return
 	}
-	_ = enc.Encode(resp)
+	if encErr := enc.Encode(resp); encErr != nil {
+		d.Logger.Named("agent_stream").Warnf("failed to encode agent response: %v", encErr)
+	}
 }
 
 // handleFileStream delegates an incoming StreamTypeFile stream to the file transfer subsystem.
@@ -172,8 +180,8 @@ func (d *Daemon) ExecuteCommand(ctx context.Context, req *ipc.ExecRequest) (*ipc
 
 // ForwardPort implements ipc.DaemonHandler.
 func (d *Daemon) ForwardPort(ctx context.Context, req *ipc.ForwardRequest) (*ipc.ForwardResponse, error) {
-	if req == nil || req.LocalPort <= 0 || req.TargetPort <= 0 || req.TargetNode == "" {
-		return nil, errors.New("invalid port forwarding parameters")
+	if req == nil || !validForwardPort(req.LocalPort) || !validForwardPort(req.TargetPort) || req.TargetNode == "" {
+		return nil, errors.New("invalid port forwarding parameters: ports must be 1-65535 and target node required")
 	}
 
 	listenAddr := fmt.Sprintf("127.0.0.1:%d", req.LocalPort)
@@ -197,17 +205,20 @@ func (d *Daemon) ForwardPort(ctx context.Context, req *ipc.ForwardRequest) (*ipc
 		targetAddr = net.JoinHostPort(req.TargetNode, strconv.Itoa(req.TargetPort))
 	}
 
+	// Detached owned lifetime: the accept-loop must not inherit the RPC
+	// handler ctx (a future per-RPC timeout would otherwise kill all
+	// tunnels). The cancel is owned by the registry and runs on
+	// replace/StopAll.
+	fwdCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	pf := subsys.NewPortForwarder(listenAddr, targetAddr, nil)
-	if err := pf.Start(context.Background()); err != nil {
+	if err := pf.Start(fwdCtx); err != nil {
+		cancel()
 		return nil, fmt.Errorf("failed to start port forwarder on %s: %w", listenAddr, err)
 	}
 
-	d.forwardersMu.Lock()
-	if old, exists := d.forwarders[listenAddr]; exists {
+	if old := d.forwarderRegistry.Set(listenAddr, pf, cancel); old != nil {
 		_ = old.Stop()
 	}
-	d.forwarders[listenAddr] = pf
-	d.forwardersMu.Unlock()
 
 	return &ipc.ForwardResponse{
 		Message:    fmt.Sprintf("Tunnel established: %s -> %s (%s)", listenAddr, req.TargetNode, targetAddr),
@@ -223,23 +234,7 @@ func (d *Daemon) CopyFile(ctx context.Context, req *ipc.CPRequest) (*ipc.CPRespo
 
 	srcTarget := subsys.ParseCPTarget(req.Source)
 	dstTarget := subsys.ParseCPTarget(req.Destination)
-
-	if req.TargetNode != "" && !srcTarget.IsRemote && !dstTarget.IsRemote {
-		if req.IsDownload {
-			srcTarget.Node = req.TargetNode
-			srcTarget.IsRemote = true
-		} else {
-			dstTarget.Node = req.TargetNode
-			dstTarget.IsRemote = true
-		}
-	}
-
-	if srcTarget.Node == d.Config.NodeName {
-		srcTarget.IsRemote = false
-	}
-	if dstTarget.Node == d.Config.NodeName {
-		dstTarget.IsRemote = false
-	}
+	srcTarget, dstTarget = resolveCPNodes(req, srcTarget, dstTarget, d.Config.NodeName)
 
 	var transferred int64
 	var err error
@@ -251,24 +246,8 @@ func (d *Daemon) CopyFile(ctx context.Context, req *ipc.CPRequest) (*ipc.CPRespo
 		transferred, err = d.uploadToNode(ctx, srcTarget.Path, dstTarget.Node, dstTarget.Path)
 	case srcTarget.IsRemote && !dstTarget.IsRemote:
 		transferred, err = d.downloadFromNode(ctx, srcTarget.Node, srcTarget.Path, dstTarget.Path)
-	case srcTarget.IsRemote && dstTarget.IsRemote:
-		// Transfer between two remote nodes using a local temporary buffer
-		tmpFile, tErr := os.CreateTemp("", "herd-cp-*")
-		if tErr != nil {
-			return nil, fmt.Errorf("failed to create temporary file for transfer: %w", tErr)
-		}
-		tmpPath := tmpFile.Name()
-		_ = tmpFile.Close()
-		defer func() { _ = os.Remove(tmpPath) }()
-
-		_, err = d.downloadFromNode(ctx, srcTarget.Node, srcTarget.Path, tmpPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to download from %s: %w", srcTarget.Node, err)
-		}
-		transferred, err = d.uploadToNode(ctx, tmpPath, dstTarget.Node, dstTarget.Path)
-		if err != nil {
-			return nil, fmt.Errorf("failed to upload to %s: %w", dstTarget.Node, err)
-		}
+	default:
+		transferred, err = d.relayRemoteCopy(ctx, srcTarget, dstTarget)
 	}
 
 	if err != nil {
@@ -279,6 +258,47 @@ func (d *Daemon) CopyFile(ctx context.Context, req *ipc.CPRequest) (*ipc.CPRespo
 		BytesTransferred: transferred,
 		Message:          fmt.Sprintf("Transferred %s to %s (%d bytes)", req.Source, req.Destination, transferred),
 	}, nil
+}
+
+// resolveCPNodes applies TargetNode routing and local-node normalization.
+func resolveCPNodes(req *ipc.CPRequest, srcTarget, dstTarget subsys.CPTarget, nodeName string) (subsys.CPTarget, subsys.CPTarget) {
+	if req.TargetNode != "" && !srcTarget.IsRemote && !dstTarget.IsRemote {
+		if req.IsDownload {
+			srcTarget.Node = req.TargetNode
+			srcTarget.IsRemote = true
+		} else {
+			dstTarget.Node = req.TargetNode
+			dstTarget.IsRemote = true
+		}
+	}
+
+	if srcTarget.Node == nodeName {
+		srcTarget.IsRemote = false
+	}
+	if dstTarget.Node == nodeName {
+		dstTarget.IsRemote = false
+	}
+	return srcTarget, dstTarget
+}
+
+// relayRemoteCopy transfers between two remote nodes via a local temp file.
+func (d *Daemon) relayRemoteCopy(ctx context.Context, srcTarget, dstTarget subsys.CPTarget) (int64, error) {
+	tmpFile, err := os.CreateTemp("", "herd-cp-*")
+	if err != nil {
+		return 0, fmt.Errorf("failed to create temporary file for transfer: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	_ = tmpFile.Close()
+	defer func() { _ = os.Remove(tmpPath) }()
+
+	if _, err := d.downloadFromNode(ctx, srcTarget.Node, srcTarget.Path, tmpPath); err != nil {
+		return 0, fmt.Errorf("failed to download from %s: %w", srcTarget.Node, err)
+	}
+	transferred, err := d.uploadToNode(ctx, tmpPath, dstTarget.Node, dstTarget.Path)
+	if err != nil {
+		return 0, fmt.Errorf("failed to upload to %s: %w", dstTarget.Node, err)
+	}
+	return transferred, nil
 }
 
 func (d *Daemon) dialNodeFileStream(ctx context.Context, targetNode string) (net.Conn, error) {

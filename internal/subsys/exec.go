@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"herd/internal/roster"
+	"github.com/wnoronha/herd/internal/roster"
 )
 
 // ExecRequest specifies command execution parameters across nodes.
@@ -134,20 +134,20 @@ func TargetNodes(target string, localName string, store *roster.Store) []string 
 // createCommand creates an OS-appropriate command execution context.
 func createCommand(ctx context.Context, command string, args []string) *exec.Cmd {
 	if len(args) > 0 {
-		return exec.CommandContext(ctx, command, args...)
+		return exec.CommandContext(ctx, command, args...) //nolint:gosec // remote command execution is herd's core product surface; commands arrive via authenticated mesh peers and exec policy
 	}
 
 	if runtime.GOOS == "windows" {
 		// On Windows, prefer PowerShell if available, fallback to cmd.exe
 		if _, err := exec.LookPath("powershell.exe"); err == nil {
-			return exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command)
+			return exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command) //nolint:gosec // fixed interpreter + args; only the script text is remote-supplied (see above)
 		}
-		return exec.CommandContext(ctx, "cmd.exe", "/C", command)
+		return exec.CommandContext(ctx, "cmd.exe", "/C", command) //nolint:gosec // fixed interpreter + args; only the script text is remote-supplied (see above)
 	}
 
 	// On Unix (Linux, macOS, BSDs), /bin/sh is standard POSIX
 	if _, err := exec.LookPath("sh"); err == nil {
-		return exec.CommandContext(ctx, "sh", "-c", command)
+		return exec.CommandContext(ctx, "sh", "-c", command) //nolint:gosec // fixed interpreter + args; only the script text is remote-supplied (see above)
 	}
-	return exec.CommandContext(ctx, "/bin/sh", "-c", command)
+	return exec.CommandContext(ctx, "/bin/sh", "-c", command) //nolint:gosec // fixed interpreter + args; only the script text is remote-supplied (see above)
 }

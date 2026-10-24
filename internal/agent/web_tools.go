@@ -187,13 +187,13 @@ func executeGoogleCustomSearch(ctx context.Context, query, apiKey, cx string, nu
 		numResults,
 	)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil) //nolint:gosec // Google Custom Search URL is built from QueryEscape'd params; user-directed search is the tool's purpose
 	if err != nil {
 		return nil, err
 	}
 
 	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := client.Do(req) //nolint:gosec // same intentional user-directed request surface as above
 	if err != nil {
 		return nil, err
 	}

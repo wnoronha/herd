@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"herd/internal/config"
-	"herd/internal/ipc"
-	"herd/internal/logger"
-	"herd/internal/mailbox"
+	"github.com/wnoronha/herd/internal/config"
+	"github.com/wnoronha/herd/internal/ipc"
+	"github.com/wnoronha/herd/internal/logger"
+	"github.com/wnoronha/herd/internal/mailbox"
 )
 
 func init() {
@@ -174,6 +174,12 @@ func TestTwoDaemonClusterJoin(t *testing.T) {
 }
 
 func TestAgentReactiveInboxWakeup(t *testing.T) {
+	// Hermetic inbox plumbing: disable Ollama auto-probe so prompt
+	// execution doesn't depend on localhost:11434 timing (refused vs
+	// blackholed decides whether the 5s budget below is met). Probing
+	// itself is covered by the Ollama/status tests.
+	t.Setenv("HERD_DISABLE_AUTO_OLLAMA", "1")
+
 	tmpDir := t.TempDir()
 
 	cfg, err := config.Load(config.Options{
@@ -298,4 +304,3 @@ func TestDaemonAgentAutoSeeding(t *testing.T) {
 		t.Errorf("expected researcher persona to be loaded in daemon AgentEngine")
 	}
 }
-

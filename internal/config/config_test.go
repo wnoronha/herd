@@ -190,3 +190,67 @@ func TestConfigFileLoading(t *testing.T) {
 		t.Errorf("expected 192.168.1.1:7946, got %s", cfg.JoinAddr)
 	}
 }
+
+func TestDiscoveryConfigDefaults(t *testing.T) {
+	for _, k := range []string{"HERD_MDNS", "HERD_ADVERTISE_ADDR"} {
+		t.Setenv(k, "")
+	}
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+	if !cfg.Mdns {
+		t.Error("expected mDNS discovery on by default")
+	}
+	if cfg.AdvertiseAddr != "" {
+		t.Errorf("expected empty AdvertiseAddr, got %q", cfg.AdvertiseAddr)
+	}
+}
+
+func TestDiscoveryConfigOverrides(t *testing.T) {
+	t.Setenv("HERD_MDNS", "0")
+	t.Setenv("HERD_ADVERTISE_ADDR", "192.168.1.50")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+	if cfg.Mdns {
+		t.Error("expected HERD_MDNS=0 to disable discovery")
+	}
+	if cfg.AdvertiseAddr != "192.168.1.50" {
+		t.Errorf("expected advertise addr from env, got %q", cfg.AdvertiseAddr)
+	}
+
+	// Explicit CLI opt wins over env.
+	cfg, err = Load(Options{Mdns: true, MdnsSet: true, AdvertiseAddr: "10.0.0.9"})
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+	if !cfg.Mdns {
+		t.Error("expected explicit opt to re-enable discovery")
+	}
+	if cfg.AdvertiseAddr != "10.0.0.9" {
+		t.Errorf("expected advertise addr from opt, got %q", cfg.AdvertiseAddr)
+	}
+}
+
+func TestDiscoveryConfigFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	content := `{"node_name":"file-node","mdns":false,"advertise_addr":"192.168.7.7"}`
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HERD_MDNS", "")
+	t.Setenv("HERD_ADVERTISE_ADDR", "")
+	cfg, err := Load(Options{ConfigFile: path})
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+	if cfg.Mdns {
+		t.Error("expected file mdns:false to disable discovery")
+	}
+	if cfg.AdvertiseAddr != "192.168.7.7" {
+		t.Errorf("expected advertise addr from file, got %q", cfg.AdvertiseAddr)
+	}
+}

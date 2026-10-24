@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"herd/internal/identity"
+	"github.com/wnoronha/herd/internal/identity"
 )
 
 // secureConn wraps a net.Conn with ChaCha20-Poly1305 framed encryption.
@@ -22,6 +22,10 @@ type secureConn struct {
 	writeMu   sync.Mutex
 	remotePub identity.Key
 }
+
+// maxStreamFramePlaintext caps a single decrypted stream frame. Read rejects
+// larger frames; Write chunks payloads so large outputs stay deliverable.
+const maxStreamFramePlaintext = 10 * 1024 * 1024
 
 func newSecureConn(raw net.Conn, psk identity.Key, remotePub identity.Key) (*secureConn, error) {
 	aead, err := NewStreamCipher(psk)
@@ -45,7 +49,7 @@ func (c *secureConn) Read(b []byte) (int, error) {
 			return 0, err
 		}
 
-		if length > 10*1024*1024 { // 10MB sanity frame limit
+		if length > maxStreamFramePlaintext {
 			return 0, fmt.Errorf("stream frame exceeds maximum size: %d", length)
 		}
 
@@ -77,22 +81,45 @@ func (c *secureConn) Write(b []byte) (int, error) {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
 
+	// Chunk so every frame stays within the peer's 10MB read limit.
+	// A single large exec/file payload would otherwise succeed locally
+	// yet always fail decryption-bounded reads on the peer.
+	if len(b) == 0 {
+		return 0, nil
+	}
+	for off := 0; off < len(b); {
+		end := off + maxStreamFramePlaintext
+		if end > len(b) {
+			end = len(b)
+		}
+		if _, err := c.writeFrame(b[off:end]); err != nil {
+			return off, err
+		}
+		off = end
+	}
+	return len(b), nil
+}
+
+func (c *secureConn) writeFrame(chunk []byte) (int, error) {
 	nonce := make([]byte, NonceSize)
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
 		return 0, fmt.Errorf("failed to generate stream nonce: %w", err)
 	}
 
-	ciphertext := c.aead.Seal(nil, nonce, b, nil)
-	frame := make([]byte, 4+NonceSize+len(ciphertext))
-	binary.BigEndian.PutUint32(frame[:4], uint32(NonceSize+len(ciphertext)))
-	copy(frame[4:4+NonceSize], nonce)
-	copy(frame[4+NonceSize:], ciphertext)
-
-	_, err := c.Conn.Write(frame)
+	ciphertext := c.aead.Seal(nil, nonce, chunk, nil)
+	payloadLen, err := uint32FrameLen(NonceSize + len(ciphertext))
 	if err != nil {
 		return 0, err
 	}
-	return len(b), nil
+	frame := make([]byte, 4+NonceSize+len(ciphertext))
+	binary.BigEndian.PutUint32(frame[:4], payloadLen)
+	copy(frame[4:4+NonceSize], nonce)
+	copy(frame[4+NonceSize:], ciphertext)
+
+	if _, err := c.Conn.Write(frame); err != nil {
+		return 0, err
+	}
+	return len(chunk), nil
 }
 
 const (

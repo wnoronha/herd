@@ -18,6 +18,8 @@ type Server struct {
 	socketPath string
 	handler    DaemonHandler
 	listener   net.Listener
+	requestCtx context.Context
+	ctxMu      sync.RWMutex
 	mu         sync.Mutex
 	closed     atomic.Bool
 	wg         sync.WaitGroup
@@ -28,7 +30,31 @@ func NewServer(socketPath string, handler DaemonHandler) *Server {
 	return &Server{
 		socketPath: socketPath,
 		handler:    handler,
+		requestCtx: context.Background(),
 	}
+}
+
+// SetRequestContext configures the context passed to daemon IPC handlers.
+func (s *Server) SetRequestContext(ctx context.Context) {
+	if ctx != nil {
+		s.ctxMu.Lock()
+		s.requestCtx = ctx
+		s.ctxMu.Unlock()
+	}
+}
+
+// baseRequestContext returns a cancellation-detached snapshot of the base
+// context so Stop/runCancel cannot poison in-flight handlers mid-flight.
+// Values are preserved; per-connection/per-request children add their own
+// cancellation tied to the client connection lifetime.
+func (s *Server) baseRequestContext() context.Context {
+	s.ctxMu.RLock()
+	base := s.requestCtx
+	s.ctxMu.RUnlock()
+	if base == nil {
+		return context.Background()
+	}
+	return context.WithoutCancel(base)
 }
 
 // Start begins listening on the Unix domain socket.
@@ -93,6 +119,11 @@ func (s *Server) handleConnection(conn net.Conn) {
 	reader := bufio.NewReader(conn)
 	writer := bufio.NewWriter(conn)
 
+	// Connection-scoped context: canceled when the client disconnects,
+	// independent of daemon Stop/runCancel (see baseRequestContext).
+	connCtx, connCancel := context.WithCancel(s.baseRequestContext())
+	defer connCancel()
+
 	for {
 		line, err := reader.ReadBytes('\n')
 		if err != nil {
@@ -105,7 +136,9 @@ func (s *Server) handleConnection(conn net.Conn) {
 			continue
 		}
 
-		resp := s.dispatch(context.Background(), req)
+		reqCtx, reqCancel := context.WithCancel(connCtx)
+		resp := s.dispatch(reqCtx, req)
+		reqCancel()
 		s.writeResponse(writer, resp)
 	}
 }
@@ -177,6 +210,17 @@ func (s *Server) dispatchAgent(ctx context.Context, req Request) (Response, bool
 		}
 		pResp, err := s.handler.AgentPrompt(ctx, &pReq)
 		return toResponse(pResp, err), true
+
+	case "AgentStatus", "agent_status", "agent.status":
+		var sReq AgentStatusRequest
+		if len(req.Params) > 0 {
+			if err := json.Unmarshal(req.Params, &sReq); err != nil {
+				return Response{Success: false, Error: "invalid agent_status params: " + err.Error()}, true
+			}
+		}
+		sResp, err := s.handler.AgentStatus(ctx, &sReq)
+		return toResponse(sResp, err), true
+
 	default:
 		return Response{}, false
 	}

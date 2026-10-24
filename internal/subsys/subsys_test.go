@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"herd/internal/roster"
+	"github.com/wnoronha/herd/internal/roster"
 )
 
 func TestExecuteLocal(t *testing.T) {

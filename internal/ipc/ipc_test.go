@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"herd/internal/mailbox"
+	"github.com/wnoronha/herd/internal/mailbox"
 )
 
 type mockDaemonHandler struct {
@@ -83,6 +83,19 @@ func (m *mockDaemonHandler) AgentPrompt(ctx context.Context, req *AgentPromptReq
 	return &AgentPromptResponse{
 		Response:  "mock agent response",
 		ModelUsed: "mock-model",
+	}, nil
+}
+
+func (m *mockDaemonHandler) AgentStatus(ctx context.Context, req *AgentStatusRequest) (*AgentStatusResponse, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return &AgentStatusResponse{
+		NodeName:      "mock-node",
+		BackendClass:  "llm",
+		BackendProvider: "gemini",
+		Model:         "gemini-3.8-flash",
+		ConfiguredLLM: true,
 	}, nil
 }
 

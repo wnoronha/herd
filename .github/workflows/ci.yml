@@ -15,7 +15,7 @@ permissions:
 jobs:
   lint:
     name: Lint & Vet
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -38,9 +38,14 @@ jobs:
       - name: Run golangci-lint
         run: golangci-lint run ./...
 
+      - name: Run govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+          govulncheck ./...
+
   test:
     name: Test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -51,5 +56,21 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Build binary
+        run: go build -o bin/herd ./cmd/herd
+
+      - name: CLI smoke test
+        run: |
+          ./bin/herd help
+          ./bin/herd daemon -h
+          ./bin/herd kv --help
+          ./bin/herd agent --help
+          ./bin/herd docs --all > /dev/null
+          # Offline negative path: status without a daemon must fail, not hang.
+          if ./bin/herd agent status --socket /nonexistent-herd-ci/herd.sock; then
+            echo "expected agent status to fail without a daemon"
+            exit 1
+          fi
+
       - name: Run test suite
-        run: go test -v -race ./...
+        run: go test -v -race -timeout 15m ./...

@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.27-alpine AS builder
+FROM golang:1.27.2-alpine AS builder
 
 WORKDIR /src
 
@@ -27,4 +27,4 @@ USER herd
 WORKDIR /home/herd
 
 ENTRYPOINT ["/usr/local/bin/herd"]
-CMD ["daemon", "run"]
+CMD ["daemon"]
