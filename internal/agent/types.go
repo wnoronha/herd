@@ -93,13 +93,14 @@ type ToolDefinition struct {
 
 // PromptRequest represents a single-shot or conversational prompt to the agent.
 type PromptRequest struct {
-	Prompt     string        `json:"prompt"`
-	TargetNode string        `json:"target_node,omitempty"`
-	SessionID  string        `json:"session_id,omitempty"`
-	History    []ChatMessage `json:"history,omitempty"`
-	Role       string        `json:"role,omitempty"`
-	Model      string        `json:"model,omitempty"`
-	Provider   string        `json:"provider,omitempty"`
+	Prompt       string        `json:"prompt"`
+	TargetNode   string        `json:"target_node,omitempty"`
+	SessionID    string        `json:"session_id,omitempty"`
+	History      []ChatMessage `json:"history,omitempty"`
+	Role         string        `json:"role,omitempty"`
+	Model        string        `json:"model,omitempty"`
+	Provider     string        `json:"provider,omitempty"`
+	ToolDecision *ToolDecision `json:"tool_decision,omitempty"`
 }
 
 // ChatMessage represents a single message in an agent conversation.
@@ -111,12 +112,13 @@ type ChatMessage struct {
 
 // PromptResponse represents the agent's completed response and execution trace.
 type PromptResponse struct {
-	Response    string     `json:"response"`
-	ToolsCalled []ToolCall `json:"tools_called,omitempty"`
-	ModelUsed   string     `json:"model_used"`
-	ExecutionMs int64      `json:"execution_ms"`
-	NodeName    string     `json:"node_name,omitempty"`
-	AgentRole   string     `json:"agent_role,omitempty"`
+	Response     string              `json:"response"`
+	ToolsCalled  []ToolCall          `json:"tools_called,omitempty"`
+	ModelUsed    string              `json:"model_used"`
+	ExecutionMs  int64               `json:"execution_ms"`
+	NodeName     string              `json:"node_name,omitempty"`
+	AgentRole    string              `json:"agent_role,omitempty"`
+	Confirmation *ConfirmationPrompt `json:"confirmation,omitempty"`
 }
 
 // ToolCall logs a tool invocation executed during an agent run.

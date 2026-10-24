@@ -29,6 +29,7 @@ type Engine struct {
 	mu         sync.RWMutex
 	sessionSvc session.Service
 	sessionMu  sync.Mutex
+	confirm    confirmState
 }
 
 // Persisted-session bounds keep the long-lived daemon from accumulating
@@ -36,7 +37,7 @@ type Engine struct {
 // cap evicts least-recently-updated first. Best-effort: eviction never fails
 // the prompt.
 const (
-	persistedSessionTTL = 30 * time.Minute
+	persistedSessionTTL  = 30 * time.Minute
 	maxPersistedSessions = 100
 	// herdADKAppName and herdADKUserID match the runner invocation identity
 	// in runADKAgent and collectADKTrace.
@@ -248,6 +249,39 @@ func (e *Engine) effectiveConfigForRequest(req *PromptRequest) (Config, []string
 	return effCfg, allowedTools, nil
 }
 
+// decidePendingConfirmation answers a yes or no request without a model
+// turn. It reports done=false when req carries no decision for a live
+// session, letting the caller run the model normally.
+func (e *Engine) decidePendingConfirmation(ctx context.Context, req *PromptRequest, start time.Time, modelUsed string) (*PromptResponse, bool) {
+	if req.ToolDecision == nil || req.SessionID == "" {
+		return nil, false
+	}
+	if !req.ToolDecision.Approved {
+		if toolName, ok := e.denyPending(req.SessionID); ok {
+			return &PromptResponse{
+				Response:    fmt.Sprintf("Tool call '%s' was declined. No action was executed.", toolName),
+				ModelUsed:   modelUsed,
+				ExecutionMs: time.Since(start).Milliseconds(),
+			}, true
+		}
+		return &PromptResponse{
+			Response:    "No tool call awaits approval in this session.",
+			ModelUsed:   modelUsed,
+			ExecutionMs: time.Since(start).Milliseconds(),
+		}, true
+	}
+	if entry, ok := e.takePending(req.SessionID); ok {
+		called := e.executeApprovedCall(ctx, entry)
+		return &PromptResponse{
+			Response:    fmt.Sprintf("Approved and executed %s.\nResult: %s", entry.tool, called.Result),
+			ToolsCalled: []ToolCall{called},
+			ModelUsed:   modelUsed,
+			ExecutionMs: time.Since(start).Milliseconds(),
+		}, true
+	}
+	return nil, false
+}
+
 // ExecutePrompt runs a task prompt through the ADK llmagent + runner loop.
 // System prompts travel via llmagent InstructionProvider so markdown prompts
 // containing {curly_braces} never trigger ADK session-state template errors.
@@ -277,6 +311,14 @@ func (e *Engine) ExecutePrompt(ctx context.Context, req *PromptRequest) (*Prompt
 		}
 		llm = newDeterministicLLM(e.validateExecPolicy, hint)
 		modelUsed = deterministicModelName
+	}
+
+	// A yes or no answer to a pending confirmation never reaches the
+	// model. A no leaves the call unexecuted. A yes runs the exact
+	// recorded call once instead of a new model turn, so approval works
+	// with every backend.
+	if decided, done := e.decidePendingConfirmation(ctx, req, start, modelUsed); done {
+		return decided, nil
 	}
 
 	resp, err := e.runADKAgent(ctx, req, effCfg, allowedTools, start, llm, modelUsed, false)
@@ -345,6 +387,10 @@ func (e *Engine) ExecutePromptStreaming(ctx context.Context, req *PromptRequest,
 		modelUsed = deterministicModelName
 	}
 
+	if decided, done := e.decidePendingConfirmation(ctx, req, start, modelUsed); done {
+		return decided, nil
+	}
+
 	resp, err := e.runADKAgentStreaming(ctx, req, effCfg, allowedTools, start, llm, modelUsed, false, yield)
 	if err != nil {
 		if llm != nil && !isDeterministicLLM(llm) && isToolUnsupportedError(err) {
@@ -374,6 +420,16 @@ func (e *Engine) ExecutePromptStreaming(ctx context.Context, req *PromptRequest,
 // tool dispatches to yield as the runner event stream arrives.
 func (e *Engine) runADKAgentStreaming(ctx context.Context, req *PromptRequest, effCfg Config, allowedTools []string, start time.Time, llm model.LLM, modelUsed string, toolsNil bool, yield func(ev StreamEvent) bool) (*PromptResponse, error) {
 	systemPrompt := e.resolveSystemPrompt(effCfg, req)
+
+	// Tag chat sessions like the unary path so destructive tools pause
+	// for approval. Delegated sub-runs inherit the outer chat session.
+	gateSessionID := req.SessionID
+	if gateSessionID == "" {
+		if outer := confirmationModeFrom(ctx); outer.interactive {
+			gateSessionID = outer.sessionID
+		}
+	}
+	ctx = contextWithConfirmationMode(ctx, gateSessionID)
 
 	tools := e.buildADKTools(allowedTools)
 	if toolsNil {
@@ -425,12 +481,19 @@ func (e *Engine) runADKAgentStreaming(ctx context.Context, req *PromptRequest, e
 		return nil, err
 	}
 
-	return &PromptResponse{
+	resp := &PromptResponse{
 		Response:    trace.text,
 		ToolsCalled: trace.toolsCalled,
 		ModelUsed:   modelUsed,
 		ExecutionMs: time.Since(start).Milliseconds(),
-	}, nil
+	}
+	// Surface a blocked destructive call so the chat client can ask yes
+	// or no and return the answer in the next request.
+	if prompt, ok := e.pendingPrompt(sessionID); ok {
+		prompt := prompt
+		resp.Confirmation = &prompt
+	}
+	return resp, nil
 }
 
 // collectADKTraceStreaming drains the runner event stream like
@@ -544,6 +607,18 @@ func (e *Engine) resolveADKModel(ctx context.Context, effCfg Config) (model.LLM,
 func (e *Engine) runADKAgent(ctx context.Context, req *PromptRequest, effCfg Config, allowedTools []string, start time.Time, llm model.LLM, modelUsed string, toolsNil bool) (*PromptResponse, error) {
 	systemPrompt := e.resolveSystemPrompt(effCfg, req)
 
+	// Tag chat sessions so destructive tools pause for approval. One-shot
+	// calls carry no SessionID and keep direct execution. Delegated sub-runs
+	// (run_agent) inherit the outer chat session for the gate so personas
+	// cannot bypass approval, while their runner session stays ephemeral.
+	gateSessionID := req.SessionID
+	if gateSessionID == "" {
+		if outer := confirmationModeFrom(ctx); outer.interactive {
+			gateSessionID = outer.sessionID
+		}
+	}
+	ctx = contextWithConfirmationMode(ctx, gateSessionID)
+
 	tools := e.buildADKTools(allowedTools)
 	if toolsNil {
 		tools = nil
@@ -597,12 +672,19 @@ func (e *Engine) runADKAgent(ctx context.Context, req *PromptRequest, effCfg Con
 		return nil, err
 	}
 
-	return &PromptResponse{
+	resp := &PromptResponse{
 		Response:    trace.text,
 		ToolsCalled: trace.toolsCalled,
 		ModelUsed:   modelUsed,
 		ExecutionMs: time.Since(start).Milliseconds(),
-	}, nil
+	}
+	// Surface a blocked destructive call so the chat client can ask yes
+	// or no and return the answer in the next request.
+	if prompt, ok := e.pendingPrompt(sessionID); ok {
+		prompt := prompt
+		resp.Confirmation = &prompt
+	}
+	return resp, nil
 }
 
 // evictStaleSessions removes persisted sessions older than

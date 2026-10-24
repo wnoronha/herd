@@ -174,14 +174,15 @@ type KVListResponse struct {
 
 // AgentPromptRequest contains task instructions for the local node agent.
 type AgentPromptRequest struct {
-	Prompt     string           `json:"prompt"`
-	TargetNode string           `json:"target_node,omitempty"`
-	Model      string           `json:"model,omitempty"`
-	Provider   string           `json:"provider,omitempty"`
-	Role       string           `json:"role,omitempty"`
-	SessionID  string           `json:"session_id,omitempty"`
-	History    []ChatMessageDTO `json:"history,omitempty"`
-	Stream     bool             `json:"stream,omitempty"`
+	Prompt       string           `json:"prompt"`
+	TargetNode   string           `json:"target_node,omitempty"`
+	Model        string           `json:"model,omitempty"`
+	Provider     string           `json:"provider,omitempty"`
+	Role         string           `json:"role,omitempty"`
+	SessionID    string           `json:"session_id,omitempty"`
+	History      []ChatMessageDTO `json:"history,omitempty"`
+	Stream       bool             `json:"stream,omitempty"`
+	ToolApproved *bool            `json:"tool_approved,omitempty"`
 }
 
 // ChatMessageDTO carries one conversation message for session continuity.
@@ -252,12 +253,20 @@ type AgentProbeStatus struct {
 
 // AgentPromptResponse contains the agent's completed response and execution trace.
 type AgentPromptResponse struct {
-	Response    string        `json:"response"`
-	ToolsCalled []ToolCallDTO `json:"tools_called,omitempty"`
-	ModelUsed   string        `json:"model_used"`
-	ExecutionMs int64         `json:"execution_ms"`
-	NodeName    string        `json:"node_name,omitempty"`
-	AgentRole   string        `json:"agent_role,omitempty"`
+	Response     string                 `json:"response"`
+	ToolsCalled  []ToolCallDTO          `json:"tools_called,omitempty"`
+	ModelUsed    string                 `json:"model_used"`
+	ExecutionMs  int64                  `json:"execution_ms"`
+	NodeName     string                 `json:"node_name,omitempty"`
+	AgentRole    string                 `json:"agent_role,omitempty"`
+	Confirmation *ConfirmationPromptDTO `json:"confirmation,omitempty"`
+}
+
+// ConfirmationPromptDTO asks the chat user to approve one destructive call.
+type ConfirmationPromptDTO struct {
+	ToolName  string `json:"tool_name"`
+	Arguments string `json:"arguments"`
+	Hint      string `json:"hint"`
 }
 
 // AgentPromptChunk carries one streaming event over the existing IPC channel.

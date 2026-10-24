@@ -293,6 +293,10 @@ func (d *Daemon) AgentPrompt(ctx context.Context, req *ipc.AgentPromptRequest) (
 		Provider:   req.Provider,
 		SessionID:  req.SessionID,
 	}
+	if req.ToolApproved != nil {
+		approved := *req.ToolApproved
+		pReq.ToolDecision = &agent.ToolDecision{Approved: approved}
+	}
 	for _, h := range req.History {
 		pReq.History = append(pReq.History, agent.ChatMessage{
 			Role:    h.Role,
@@ -341,6 +345,16 @@ func (d *Daemon) AgentPrompt(ctx context.Context, req *ipc.AgentPromptRequest) (
 		ExecutionMs: resp.ExecutionMs,
 		NodeName:    nodeName,
 		AgentRole:   agentRole,
+		Confirmation: func() *ipc.ConfirmationPromptDTO {
+			if resp.Confirmation == nil {
+				return nil
+			}
+			return &ipc.ConfirmationPromptDTO{
+				ToolName:  resp.Confirmation.ToolName,
+				Arguments: resp.Confirmation.Arguments,
+				Hint:      resp.Confirmation.Hint,
+			}
+		}(),
 	}, nil
 }
 
@@ -367,6 +381,10 @@ func (d *Daemon) AgentPromptStream(ctx context.Context, req *ipc.AgentPromptRequ
 		Model:      req.Model,
 		Provider:   req.Provider,
 		SessionID:  req.SessionID,
+	}
+	if req.ToolApproved != nil {
+		approved := *req.ToolApproved
+		pReq.ToolDecision = &agent.ToolDecision{Approved: approved}
 	}
 	for _, h := range req.History {
 		pReq.History = append(pReq.History, agent.ChatMessage{
@@ -428,6 +446,16 @@ func (d *Daemon) AgentPromptStream(ctx context.Context, req *ipc.AgentPromptRequ
 		ExecutionMs: resp.ExecutionMs,
 		NodeName:    nodeName,
 		AgentRole:   agentRole,
+		Confirmation: func() *ipc.ConfirmationPromptDTO {
+			if resp.Confirmation == nil {
+				return nil
+			}
+			return &ipc.ConfirmationPromptDTO{
+				ToolName:  resp.Confirmation.ToolName,
+				Arguments: resp.Confirmation.Arguments,
+				Hint:      resp.Confirmation.Hint,
+			}
+		}(),
 	}, nil
 }
 

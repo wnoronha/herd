@@ -7,6 +7,8 @@ The format follows Keep a Changelog 1.1.0.
 
 ### Added
 - Add streaming agent responses over IPC.
+- Add yes-or-no approval prompts for destructive chat tools.
+- Add chat commands for tools, history, and sessions.
 
 ## [v0.2.0] - 2026-10-20
 

@@ -89,6 +89,10 @@ func (t *herdADKTool) Run(ctx agent.Context, args any) (map[string]any, error) {
 		}
 	}
 
+	// Confirmation pauses happen in herdBeforeToolCallback, which ADK always
+	// fires before Run. Run stays policy-only so an approved call that the
+	// callback already consumed executes exactly once.
+
 	if t.def.Name == "run_agent" {
 		if runAgentDepthOf(ctx) > maxRunAgentDepth {
 			return map[string]any{"error": "run_agent delegation depth exceeded (max 5); refusing recursive self-delegation"}, nil
@@ -133,17 +137,23 @@ func (e *Engine) buildADKTools(allowed []string) []tool.Tool {
 }
 
 // herdBeforeToolCallback enforces agent:policy:allowed_exec fail-closed on
-// cluster_exec before the tool runs. Returning a non-nil map with a nil error
-// short-circuits the tool Run and delivers the structured policy rejection to
-// the model.
+// cluster_exec before the tool runs, then pauses destructive calls in chat
+// sessions until the user approves them. Returning a non-nil map with a nil
+// error short-circuits the tool Run and delivers the structured rejection
+// or confirmation pause to the model.
 func herdBeforeToolCallback(e *Engine) llmagent.BeforeToolCallback {
-	return func(_ agent.Context, t tool.Tool, args map[string]any) (map[string]any, error) {
-		if t == nil || t.Name() != "cluster_exec" {
+	return func(ctx agent.Context, t tool.Tool, args map[string]any) (map[string]any, error) {
+		if t == nil {
 			return nil, nil
 		}
-		cmd, _ := args["command"].(string)
-		if err := e.validateExecPolicy(cmd); err != nil {
-			return map[string]any{"error": err.Error()}, nil
+		if t.Name() == "cluster_exec" {
+			cmd, _ := args["command"].(string)
+			if err := e.validateExecPolicy(cmd); err != nil {
+				return map[string]any{"error": err.Error()}, nil
+			}
+		}
+		if proceed, blocked := e.confirmationGate(ctx, t.Name(), args); !proceed {
+			return blocked, nil
 		}
 		return nil, nil
 	}
