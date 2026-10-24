@@ -1,193 +1,304 @@
-# Agent Instructions
+## 1. English language use in docs
 
-## Work Management
+Use US English with plain tone for docs.
+Apply rules to `docs/`, `README.md`, comments, and messages.
 
-This project tracks work with `bw` (beadwork), which persists to git — plans,
-progress, and decisions survive compaction, session boundaries, and context
-loss.
+### Style rules
 
-ALWAYS run `bw prime` before starting work. Without it, you're missing workflow
-context, current state, and repo hygiene warnings. Work done without priming
-often conflicts with in-progress changes.
+Prefer active voice with `[Subject] + [Verb] + [Object]`.
+Keep each sentence under 20 words.
+Convey single idea in each sentence.
+Define acronyms at first use.
+Prohibit emojis in docs, comments, commits, and logs.
+Prohibit vague modifiers, example `very`, `simply`, `just`.
+Use sentence case for titles.
+Use lowercase for commit subjects, not sentence case.
+Use US spellings, example `color`, not `colour`.
+Spell out numbers under ten in prose, use digits for ten and above.
+Apply length and number rules to prose only, not to code or versions.
 
-Committing, closing issues, and syncing are part of completing a task — not
-separate actions requiring additional permission.
+### Examples
 
-**Important**: The `beadwork` branch is local-only. Never push it to a remote repository.
-Do not run `bw sync` if it pushes to remote; if run, delete `origin/beadwork` immediately.
+Good:
 
-## Persistent Memory (ICM)
-
-This project uses ICM for persistent memory across sessions.
-- Recall before starting work: `icm recall "query"`
-- Store architectural decisions: `icm store -t decisions-herd -c "description" -i high`
-- Store resolved errors: `icm store -t errors-resolved -c "description" -i high -k "keywords"`
-- Store context summaries: `icm store -t context-herd -c "summary" -i high`
-
-## Documentation
-
-User-facing docs live under `docs/` and are **embedded** in the binary (`go:embed *.md`). Keep them aligned with shipped behavior in the **same change** as code.
-
-When you change agent providers, tools, CLI commands, or IPC:
-
-- [docs/agent-quickstart.md](docs/agent-quickstart.md) — onboarding and troubleshooting
-- [docs/commands.md](docs/commands.md) — CLI reference
-- [docs/adk-integration.md](docs/adk-integration.md) — runtime, tools, providers
-- [README.md](README.md) — index and quickstart snippets
-
-Verify with `go test ./docs/...` and `herd docs agent-quickstart` after `make build`.
-
-## Herd node personas (`AGENTS.md` on cluster nodes)
-
-This repository root **`AGENTS.md`** is **Cursor/agent instructions for contributing to Herd**. It is not the embedded mesh persona file.
-
-Node personas live at `~/.config/herd/<node>/agents/AGENTS.md` (seeded by `herd daemon` or `herd agent init`). The canonical default template is `DefaultAgentsTemplate` in [internal/agent/markdown.go](internal/agent/markdown.go); [examples/agents/AGENTS.md](examples/agents/AGENTS.md) mirrors it for review (keep in sync when editing defaults).
-
-After changing default tools or persona text in code, refresh deployed nodes:
-
-```bash
-herd agent init --force --for-node "$HERD_NODE_NAME"
-# restart daemon so it reloads markdown definitions
+```text
+The API (application programming interface) returns user data.
+The CLI (command-line interface) validates config files.
 ```
 
-See [docs/agent-quickstart.md](docs/agent-quickstart.md) and [docs/adk-integration.md](docs/adk-integration.md) §4.
+Avoid:
 
-<!-- rtk-instructions v2 -->
-## RTK (Rust Token Killer) - Token-Optimized Commands
-
-### Golden Rule
-
-**Always prefix commands with `rtk`**. If RTK has a dedicated filter, it uses it. If not, it passes through unchanged. This means RTK is always safe to use.
-
-**Important**: Even in command chains with `&&`, use `rtk`:
-```bash
-# Incorrect
-git add . && git commit -m "msg" && git push
-
-# Correct
-rtk git add . && rtk git commit -m "msg" && rtk git push
+```text
+Very simply, the data gets returned!!! :)
+Just fix stuff properly.
 ```
 
-### RTK Commands by Workflow
+### Agent rules
 
-#### Build & Compile (80-90% savings)
-```bash
-rtk cargo build         # Cargo build output
-rtk cargo check         # Cargo check output
-rtk cargo clippy        # Clippy warnings grouped by file (80%)
-rtk tsc                 # TypeScript errors grouped by file/code (83%)
-rtk lint                # ESLint/Biome violations grouped (84%)
-rtk prettier --check    # Files needing format only (70%)
-rtk next build          # Next.js build with route metrics (87%)
+Review docs for tone before commit.
+Correct spelling errors before merge.
+Flag unclear sentences in review comments.
+
+## 2. Workspace layout
+
+Use `.ai/` for agent state only.
+Keep `.ai/` narrow in new projects.
+Large folders confuse agents.
+Large folders slow reviews.
+This section does not define product code layout.
+Use default layout below.
+
+```text
+.ai/
+├── handoff.md
+├── plans/
+│   ├── active.md
+│   └── history/
+├── artifacts/
+└── tmp/
 ```
 
-#### Test (60-99% savings)
-```bash
-rtk cargo test          # Cargo test failures only (90%)
-rtk go test             # Go test failures only (90%)
-rtk jest                # Jest failures only (99.5%)
-rtk vitest              # Vitest failures only (99.5%)
-rtk playwright test     # Playwright failures only (94%)
-rtk pytest              # Python test failures only (90%)
-rtk rake test           # Ruby test failures only (90%)
-rtk rspec               # RSpec test failures only (60%)
-rtk test <cmd>          # Generic test wrapper - failures only
+Store current goals in `plans/active.md`.
+Archive done plans in `plans/history/`.
+Store final outputs in `artifacts/`.
+Store volatile logs in `tmp/`.
+Exclude logs, caches, and secrets from `.ai/` outside `tmp/`.
+Add other folders only on demand.
+Consider `context/` for durable project facts.
+Consider `decisions/` for architecture history.
+Skip memory folders without proven demand.
+Adjust paths in project `AGENTS.md` as needed.
+
+## 3. Commit message conventions
+
+Use Conventional Commits 1.0.0 for messages.
+
+### Format
+
+Use format `type(scope): subject` for titles.
+Keep scope optional and lowercase.
+Keep subject under 72 characters.
+Start subject with imperative verb in lowercase.
+Write `add feature`, not `adds feature` or `added feature`.
+Omit final period in subject line.
+
+### Allowed types
+
+| Type | Use |
+| ---- | --- |
+| `feat` | Add user feature |
+| `fix` | Repair defect |
+| `docs` | Update documentation only |
+| `style` | Adjust format without logic change |
+| `refactor` | Restructure code without behavior change |
+| `perf` | Improve speed or memory use |
+| `test` | Add test coverage |
+| `build` | Update build scripts or dependencies |
+| `ci` | Update pipeline configuration |
+| `chore` | Update tooling without product change |
+| `revert` | Revert prior commit |
+
+### Body
+
+Add body only for complex changes.
+Explain reason for change in body.
+Wrap body lines at 72 characters.
+
+### Footer
+
+Add footer for API splits and issue links.
+Mark API splits with `!` after type or scope.
+Include `BREAKING CHANGE:` token in footer for splits.
+Link issues with `Refs: #123` or `Fixes: #123`.
+Add `Assisted-by` trailer for AI-assisted kernel work, see section 6.
+
+### Examples
+
+```text
+feat(auth): add OAuth login
+fix(api): handle null response
+docs(readme): update install steps
+feat(api)!: drop v1 endpoint
+
+feat(search): add filters
+
+Explain user need for filters here.
+
+Refs: #42
 ```
 
-#### Git (59-80% savings)
-```bash
-rtk git status          # Compact status
-rtk git log             # Compact log (works with all git flags)
-rtk git diff            # Compact diff (80%)
-rtk git show            # Compact show (80%)
-rtk git add             # Ultra-compact confirmations (59%)
-rtk git commit          # Ultra-compact confirmations (59%)
-rtk git push            # Ultra-compact confirmations
-rtk git pull            # Ultra-compact confirmations
-rtk git branch          # Compact branch list
-rtk git fetch           # Compact fetch
-rtk git stash           # Compact stash
-rtk git worktree        # Compact worktree
+```text
+BREAKING CHANGE: drop v1 endpoint, use v2 endpoint
 ```
 
-Note: Git passthrough works for ALL subcommands, even those not explicitly listed.
+### Agent rules
 
-#### GitHub (26-87% savings)
-```bash
-rtk gh pr view <num>    # Compact PR view (87%)
-rtk gh pr checks        # Compact PR checks (79%)
-rtk gh run list         # Compact workflow runs (82%)
-rtk gh issue list       # Compact issue list (80%)
-rtk gh api              # Compact API responses (26%)
+Create atomic commits with single logical change.
+Do not commit or push unless user requests it.
+Never commit secrets, tokens, or env files.
+Verify commits with `git log --oneline -5` before push.
+Reject vague subjects, example `fix stuff` or `update code`.
+
+## 4. Changelog conventions
+
+Use Keep a Changelog 1.1.0 for releases.
+Maintain changelog in `CHANGELOG.md` at root.
+
+### Format rules
+
+Place `Unreleased` section at top for new changes.
+Order versions newest first with SemVer (semantic versioning) numbers.
+Write dates in ISO (International Organization for Standardization) 8601 format `YYYY-MM-DD`.
+Group changes under categories below.
+Add entries in past tense with plain verbs.
+Omit internal refactors without user impact.
+Never copy raw git logs into changelog.
+
+### Categories
+
+* `Added`
+* `Changed`
+* `Deprecated`
+* `Removed`
+* `Fixed`
+* `Security`
+
+### Example
+
+```markdown
+# Changelog
+
+## [Unreleased]
+
+### Added
+- Add OAuth login for web app.
+
+## [1.2.0] - 2026-10-21
+
+### Fixed
+- Handle null response in user API.
+
+### Security
+- Patch token leak in logs.
+
+[Unreleased]: <repo-url>/compare/v1.2.0...HEAD
+[1.2.0]: <repo-url>/releases/tag/v1.2.0
 ```
 
-#### JavaScript/TypeScript Tooling (70-90% savings)
-```bash
-rtk pnpm list           # Compact dependency tree (70%)
-rtk pnpm outdated       # Compact outdated packages (80%)
-rtk pnpm install        # Compact install output (90%)
-rtk npm run <script>    # Compact npm script output
-rtk npx <cmd>           # Compact npx command output
-rtk prisma              # Prisma without ASCII art (88%)
-rtk uv run <cmd>        # Compact uv project command output
+Replace `<repo-url>` with repository URL.
+
+### Agent rules
+
+Update changelog for user-facing changes only.
+Check version link format before merge.
+Generate release notes from the release branch history on GitHub.
+
+## 5. Session handoff
+
+Update `handoff.md` at session end.
+Update `handoff.md` before context handoff.
+Keep three fields: current status, blocking issues, next actions.
+Limit current status to one sentence.
+List zero or more open problems under blocking issues.
+List one or two concrete tasks under next actions.
+Use `flock` only for shared runs with concurrent agents.
+Archive handoff text into `plans/history/` for milestones.
+
+```markdown
+# Handoff: [Task name]
+* **Current status:** [one sentence]
+* **Blocking issues:** [None] or [list]
+* **Next actions:** [one or two tasks]
 ```
 
-#### Files & Search (60-75% savings)
-```bash
-rtk ls <path>           # Tree format, compact (65%)
-rtk read <file>         # Code reading with filtering (60%)
-rtk grep <pattern>      # Search grouped by file (75%). Format flags (-c, -l, -L, -o, -Z) run raw.
-rtk find <pattern>      # Find grouped by directory (70%)
+## 6. Attribution
+
+Use `Assisted-by: <model-id>` trailer for AI-assisted kernel work.
+Replace `<model-id>` with exact provider and model ID.
+Copy session model ID verbatim without abbreviation.
+Omit generic `LLM` label.
+List specialized analysis tools after model ID.
+Omit basic tools such as `git`, `gcc`, `make`, and editors.
+Do not invent alternative attribution formats.
+
+```text
+Assisted-by: opencode/muse-spark-1.3-contributor coccinelle sparse
 ```
 
-#### Analysis & Debug (70-90% savings)
-```bash
-rtk err <cmd>           # Filter errors only from any command
-rtk log <file>          # Deduplicated logs with counts
-rtk json <file>         # JSON structure without values
-rtk deps                # Dependency overview
-rtk env                 # Environment variables compact
-rtk summary <cmd>       # Smart summary of command output
-rtk diff                # Ultra-compact diffs
+## 7. Issue tracking with Beads
+
+Use `bd` for task tracking in repos with `.beads/`.
+Run `bd prime` for full workflow and commands.
+Claim work before you start it.
+Refresh leases with `heartbeat` for long tasks.
+Close issues when work lands.
+Sync issue data with `bd dolt pull` and `bd dolt push`.
+Use one worktree per parallel task.
+Create worktrees with `bd worktree create <name> --branch <branch>`.
+Worktrees share the same issue database automatically.
+Check state with `bd worktree list` and `bd worktree info`.
+Remove worktrees with `bd worktree remove <name>`.
+Do not hand-edit inside Beads managed comment blocks.
+
+### Release branches
+
+Name release branches with bare versions like `0.2.1`.
+Do not use `-dev` suffixes on branch names.
+Review the backlog and file epics and issues first.
+Create one work branch per task off the release branch.
+Use `bd worktree create <work-branch> --branch <work-branch>` for isolation.
+Make as many commits as needed on work branches.
+Include gate commits on work branches.
+Squash-merge each work branch into the release branch.
+Keep one squash commit per task on the release branch.
+Merge the release branch into `main` when it ships.
+Generate the GitHub changelog from that clean history.
+Tag `<version>-dev` for pre-release builds; re-tag for rebuilds.
+Tag `<version>` once for the final release build.
+
+```text
+git branch <version> main
+bd worktree create <work-branch> --branch <work-branch>  # from <version>
+# many commits on <work-branch>, gates included
+git merge --squash <work-branch>  # into <version>, one commit
+git merge <version>               # into main, no squash
 ```
 
-#### Infrastructure (85% savings)
-```bash
-rtk docker ps           # Compact container list
-rtk docker images       # Compact image list
-rtk docker logs <c>     # Deduplicated logs
-rtk kubectl get         # Compact resource list
-rtk kubectl logs        # Deduplicated pod logs
-```
+### Agent rules
 
-#### Network (65-70% savings)
-```bash
-rtk curl <url>          # Compact HTTP responses (70%)
-rtk wget <url>          # Compact download output (65%)
-```
+Do not use markdown TODO lists for tracked work.
+Do not work the same issue in two worktrees.
+Explicit user instructions override Beads profiles.
+Section 3 commit rules still apply unless user opts in.
+Never branch work directly off `main` during a release.
+Never merge work branches into `main`; target the release branch.
+Never squash-merge the release branch into `main`.
 
-#### Meta Commands
-```bash
-rtk gain                # View token savings statistics
-rtk gain --history      # View command history with savings
-rtk discover            # Analyze Claude Code sessions for missed RTK usage
-rtk proxy <cmd>         # Run command without filtering (for debugging)
-rtk init                # Add RTK instructions to CLAUDE.md
-rtk init --global       # Add RTK to ~/.claude/CLAUDE.md
-```
+## 8. Token-efficient commands with RTK
 
-### Token Savings Overview
+Prefix shell commands with `rtk` when available.
+Run `rtk --help` for full command reference.
+Run `rtk gain` to inspect savings.
+Do not paste full RTK tables into this file.
 
-| Category | Commands | Typical Savings |
-|----------|----------|-----------------|
-| Tests | vitest, playwright, cargo test | 90-99% |
-| Build | next, tsc, lint, prettier | 70-87% |
-| Git | status, log, diff, add, commit | 59-80% |
-| GitHub | gh pr, gh run, gh issue | 26-87% |
-| Package Managers | pnpm, npm, npx | 70-90% |
-| Files | ls, read, grep, find | 60-75% |
-| Infrastructure | docker, kubectl | 85% |
-| Network | curl, wget | 65-70% |
+### Agent rules
 
-Overall average: **60-90% token reduction** on common development operations.
-<!-- /rtk-instructions -->
+Keep `rtk` prefix even in `&&` chains.
+Fall back to raw command if `rtk` lacks a filter.
+
+## 9. Persistent memory with ICM
+
+Skip this section when `NO_ICM=1` exists in the environment.
+Recall context before you start work.
+Store decisions and fixes after work lands.
+Use `icm recall "query"` for lookup.
+Use `icm store` for durable facts.
+Do not create ad hoc memory files.
+
+### Agent rules
+
+Check `NO_ICM` before any ICM command.
+Skip `icm recall` and `icm store` when `NO_ICM=1`.
+Do not read `.icm/` files when `NO_ICM=1`.
+Keep section 5 `handoff.md` for session status.
+Keep ICM for durable cross-session memory.

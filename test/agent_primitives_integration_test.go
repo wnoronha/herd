@@ -20,6 +20,35 @@ import (
 	"github.com/wnoronha/herd/internal/testutil"
 )
 
+// openAI wire shapes for the chat-completions mock servers. The ADK
+// openaimodel backend speaks the OpenAI Chat Completions API, so mocks keep
+// using these JSON shapes without depending on production code.
+type openAIToolCall struct {
+	ID       string             `json:"id"`
+	Type     string             `json:"type"`
+	Function openAIFunctionCall `json:"function"`
+}
+
+type openAIFunctionCall struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+type openAIChatResponse struct {
+	Choices []struct {
+		Message struct {
+			Role      string           `json:"role"`
+			Content   string           `json:"content"`
+			ToolCalls []openAIToolCall `json:"tool_calls,omitempty"`
+		} `json:"message"`
+		FinishReason string `json:"finish_reason"`
+	} `json:"choices"`
+	Error *struct {
+		Message string `json:"message"`
+		Type    string `json:"type"`
+	} `json:"error,omitempty"`
+}
+
 func TestAgentPrimitivesEndToEnd(t *testing.T) {
 	testutil.SetupHermeticEnvironment(t)
 
@@ -121,27 +150,27 @@ func verifyDNSLookupAutonomousLoop(t *testing.T, ctx context.Context, nodeAlpha 
 		turn := callCount.Add(1)
 		w.Header().Set("Content-Type", "application/json")
 		if turn == 1 {
-			resp := agent.OpenAIChatResponse{
+			resp := openAIChatResponse{
 				Choices: []struct {
 					Message struct {
-						Role      string                 `json:"role"`
-						Content   string                 `json:"content"`
-						ToolCalls []agent.OpenAIToolCall `json:"tool_calls,omitempty"`
+						Role      string           `json:"role"`
+						Content   string           `json:"content"`
+						ToolCalls []openAIToolCall `json:"tool_calls,omitempty"`
 					} `json:"message"`
 					FinishReason string `json:"finish_reason"`
 				}{
 					{
 						Message: struct {
-							Role      string                 `json:"role"`
-							Content   string                 `json:"content"`
-							ToolCalls []agent.OpenAIToolCall `json:"tool_calls,omitempty"`
+							Role      string           `json:"role"`
+							Content   string           `json:"content"`
+							ToolCalls []openAIToolCall `json:"tool_calls,omitempty"`
 						}{
 							Role: "assistant",
-							ToolCalls: []agent.OpenAIToolCall{
+							ToolCalls: []openAIToolCall{
 								{
 									ID:   "call_dns",
 									Type: "function",
-									Function: agent.OpenAIFunctionCall{
+									Function: openAIFunctionCall{
 										Name:      "dns_lookup",
 										Arguments: `{"name":"example.com","record_type":"A"}`,
 									},
@@ -155,20 +184,20 @@ func verifyDNSLookupAutonomousLoop(t *testing.T, ctx context.Context, nodeAlpha 
 			_ = json.NewEncoder(w).Encode(resp)
 			return
 		}
-		resp := agent.OpenAIChatResponse{
+		resp := openAIChatResponse{
 			Choices: []struct {
 				Message struct {
-					Role      string                 `json:"role"`
-					Content   string                 `json:"content"`
-					ToolCalls []agent.OpenAIToolCall `json:"tool_calls,omitempty"`
+					Role      string           `json:"role"`
+					Content   string           `json:"content"`
+					ToolCalls []openAIToolCall `json:"tool_calls,omitempty"`
 				} `json:"message"`
 				FinishReason string `json:"finish_reason"`
 			}{
 				{
 					Message: struct {
-						Role      string                 `json:"role"`
-						Content   string                 `json:"content"`
-						ToolCalls []agent.OpenAIToolCall `json:"tool_calls,omitempty"`
+						Role      string           `json:"role"`
+						Content   string           `json:"content"`
+						ToolCalls []openAIToolCall `json:"tool_calls,omitempty"`
 					}{
 						Role:    "assistant",
 						Content: "Resolved example.com A records via dns_lookup.",
@@ -321,27 +350,27 @@ func verifyAutonomousToolLoop(t *testing.T, ctx context.Context, nodeAlpha *clus
 		turn := callCount.Add(1)
 		w.Header().Set("Content-Type", "application/json")
 		if turn == 1 {
-			resp := agent.OpenAIChatResponse{
+			resp := openAIChatResponse{
 				Choices: []struct {
 					Message struct {
-						Role      string                 `json:"role"`
-						Content   string                 `json:"content"`
-						ToolCalls []agent.OpenAIToolCall `json:"tool_calls,omitempty"`
+						Role      string           `json:"role"`
+						Content   string           `json:"content"`
+						ToolCalls []openAIToolCall `json:"tool_calls,omitempty"`
 					} `json:"message"`
 					FinishReason string `json:"finish_reason"`
 				}{
 					{
 						Message: struct {
-							Role      string                 `json:"role"`
-							Content   string                 `json:"content"`
-							ToolCalls []agent.OpenAIToolCall `json:"tool_calls,omitempty"`
+							Role      string           `json:"role"`
+							Content   string           `json:"content"`
+							ToolCalls []openAIToolCall `json:"tool_calls,omitempty"`
 						}{
 							Role: "assistant",
-							ToolCalls: []agent.OpenAIToolCall{
+							ToolCalls: []openAIToolCall{
 								{
 									ID:   "call_manage",
 									Type: "function",
-									Function: agent.OpenAIFunctionCall{
+									Function: openAIFunctionCall{
 										Name:      "cluster_manage",
 										Arguments: `{"action":"status"}`,
 									},
@@ -349,7 +378,7 @@ func verifyAutonomousToolLoop(t *testing.T, ctx context.Context, nodeAlpha *clus
 								{
 									ID:   "call_write",
 									Type: "function",
-									Function: agent.OpenAIFunctionCall{
+									Function: openAIFunctionCall{
 										Name:      "file_write",
 										Arguments: fmt.Sprintf(`{"path":%q,"content":"autonomous model write"}`, filepath.Join(tmpDir, "model.txt")),
 									},
@@ -362,20 +391,20 @@ func verifyAutonomousToolLoop(t *testing.T, ctx context.Context, nodeAlpha *clus
 			}
 			_ = json.NewEncoder(w).Encode(resp)
 		} else {
-			resp := agent.OpenAIChatResponse{
+			resp := openAIChatResponse{
 				Choices: []struct {
 					Message struct {
-						Role      string                 `json:"role"`
-						Content   string                 `json:"content"`
-						ToolCalls []agent.OpenAIToolCall `json:"tool_calls,omitempty"`
+						Role      string           `json:"role"`
+						Content   string           `json:"content"`
+						ToolCalls []openAIToolCall `json:"tool_calls,omitempty"`
 					} `json:"message"`
 					FinishReason string `json:"finish_reason"`
 				}{
 					{
 						Message: struct {
-							Role      string                 `json:"role"`
-							Content   string                 `json:"content"`
-							ToolCalls []agent.OpenAIToolCall `json:"tool_calls,omitempty"`
+							Role      string           `json:"role"`
+							Content   string           `json:"content"`
+							ToolCalls []openAIToolCall `json:"tool_calls,omitempty"`
 						}{
 							Role:    "assistant",
 							Content: "Executed cluster_manage and file_write autonomously.",

@@ -917,6 +917,7 @@ func TestRoleBasedScopedToolsets_OpenAI(t *testing.T) {
 	turn := 0
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
 		var req OpenAIChatRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)

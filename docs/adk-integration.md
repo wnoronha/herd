@@ -1,6 +1,6 @@
-# Google ADK-Go Integration
+# Google ADK Integration
 
-Specification and design for embedding Google's Gemini Go SDK (`google.golang.org/genai`) directly into Herd to form a decentralized autonomous agent mesh. The implementation uses the Gemini Go SDK, not an ADK package.
+Specification and design for embedding Google's Agent Development Kit (`google.golang.org/adk/v2`) into Herd to form a decentralized autonomous agent mesh. The implementation runs every provider through the native ADK runtime (`model.LLM`, `agent/llmagent`, `runner.Runner`).
 
 See also:
 - [Agent Quickstart](agent-quickstart.md) — local Ollama, `herd agent status`, troubleshooting
@@ -236,8 +236,8 @@ sequenceDiagram
 ```
 
 ### Key Concurrency Invariants:
-1. **Pre-allocated Indexed Slices**: Each goroutine writes only to its designated index `idx` in `results := make([]execResult, len(toolCalls))`. This guarantees zero lock contention and eliminates channels.
-2. **Deterministic History Preservation**: Tool output messages returned to the LLM precisely match the order emitted by the model, preventing non-deterministic prompt drifting or token mismatch.
+1. **ADK Parallel Execution**: Tool calls run inside ADK's parallel tool engine (`platform.RunTasks`). Herd's bridge (`herdADKTool`) is goroutine-safe: handlers that touch shared registries (`cluster_tools.go` forward registry, KV/roster stores) hold their own mutexes.
+2. **Deterministic Trace Reconstruction**: `FunctionCall` parts and their `FunctionResponse` payloads are matched by call ID, preserving the exact order of `FunctionCall`s within each turn. This prevents non-deterministic prompt drifting or token mismatch.
 3. **Execution Wall-Clock Savings**: Total turn execution time drops from `O(N * Latency)` to `O(max(Latency))`.
 
 ---
@@ -390,7 +390,7 @@ sub_agents:
 
 ## 5. Supported Model Providers
 
-The agent engine picks backends in order: **Gemini** (when configured), **OpenAI-compatible** (when `OPENAI_API_KEY`, `OPENAI_BASE_URL`, or `provider=openai`), then **automatic local Ollama** when no cloud keys are set (probes `http://localhost:11434/v1` with tools, then native `/api/chat`), and finally the **deterministic fallback** if Ollama is unreachable. Set `provider=ollama` to require Ollama (errors if down). Override defaults with env or `agent:config:*` KV.
+The agent engine builds one ADK `model.LLM` per request (no global registry) and runs it through `llmagent.New` plus `runner.Runner`. Backend order: **Gemini** (when configured), **OpenAI-compatible** (when `OPENAI_API_KEY`, `OPENAI_BASE_URL`, or `provider=openai`), then **automatic local Ollama** when no cloud keys are set (probes `http://localhost:11434` tags, then drives `http://localhost:11434/v1` through the same ADK `openaimodel` with a tool-less retry on HTTP 400), and finally the **deterministic fallback** (`deterministicLLM`, an in-runtime `model.LLM` that emits a `FunctionCall` on turn one and formats the `FunctionResponse` on turn two) if Ollama is unreachable. Set `provider=ollama` to require Ollama (errors if down). Override defaults with env or `agent:config:*` KV.
 
 | Provider | Environment Variables | Default Endpoint / Model | Best Used For |
 |---|---|---|---|
@@ -416,6 +416,16 @@ Use **`herd agent status --probe`** before debugging prompts. Common cases:
 **Daemon vs CLI:** Agent commands use IPC to the long-running daemon. Rebuild alone is not enough — restart the daemon. See [Agent Quickstart](agent-quickstart.md).
 
 **Model selection:** Auto-Ollama prefers `OLLAMA_MODEL`, then replaces cloud defaults (`gpt-4o-mini`, `gemini-*`) with `llama3.2`, then any installed tag from Ollama’s model list.
+
+### 5.2 ADK Runtime Layout (`internal/agent/`)
+
+| File | ADK role |
+|---|---|
+| `adk_model.go` | Per-request `model.LLM` factory (`gemini.NewModel`, `openaimodel.NewModel` with `APIChatCompletions`) plus the air-gapped two-turn `deterministicLLM`. No `model.Register` global state. |
+| `adk_tools.go` | `herdADKTool` bridge (`tool.Tool` plus `Declaration`, `Run`, `ProcessRequest` via `toolutils.PackTool`), `BeforeToolCallback` exec-policy guard, `OnToolErrorCallback` rejection contract, `run_agent` recursion cap. |
+| `engine.go` | `llmagent.New` with `InstructionProvider` (raw system prompt, no `{template}` injection) plus `runner.Runner` over `session.InMemoryService`; reconstructs `ToolsCalled` matched by call ID in call order. |
+
+System prompts travel via `InstructionProvider` so markdown containing `{curly_braces}` never triggers ADK session-state template errors. Keyless local endpoints receive the placeholder key `ollama` so `openai-go/v3` never fails on a missing `OPENAI_API_KEY`; the default `api.openai.com` endpoint still requires a real key. Stateful chat persists in the shared `InMemoryService` only when the request carries a `SessionID`; one-shot prompts run on an ephemeral service that is discarded after the call, so the daemon never accumulates sessions.
 
 ---
 
@@ -464,6 +474,8 @@ herd agent chat
 # Chat directly with the agent on a remote node
 herd agent chat --target node-2
 ```
+
+The CLI generates one session UUID for the whole interactive loop and sends it as `session_id` on every IPC prompt. The daemon forwards it into the ADK `InMemoryService`, so each turn sees prior tool outputs. Daemon restarts clear in-memory history; the next turn starts a fresh session without crashing.
 
 ### 7.3 Agent Tools Schema Discovery (`herd agent tools`)
 ```bash

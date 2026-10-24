@@ -2,6 +2,7 @@ package ipc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -91,11 +92,11 @@ func (m *mockDaemonHandler) AgentStatus(ctx context.Context, req *AgentStatusReq
 		return nil, m.err
 	}
 	return &AgentStatusResponse{
-		NodeName:      "mock-node",
-		BackendClass:  "llm",
+		NodeName:        "mock-node",
+		BackendClass:    "llm",
 		BackendProvider: "gemini",
-		Model:         "gemini-3.8-flash",
-		ConfiguredLLM: true,
+		Model:           "gemini-3.8-flash",
+		ConfiguredLLM:   true,
 	}, nil
 }
 
@@ -431,3 +432,35 @@ func TestClientServer_Mailbox(t *testing.T) {
 	}
 }
 
+// TestAgentPromptSessionCarryThrough verifies SessionID and History survive
+// the IPC JSON round-trip so multi-turn chat sessions retain state.
+func TestAgentPromptSessionCarryThrough(t *testing.T) {
+	req := &AgentPromptRequest{
+		Prompt:     "repeat what you said",
+		TargetNode: "node-1",
+		Model:      "mock-gpt",
+		Provider:   "openai",
+		Role:       "coordinator",
+		SessionID:  "chat-session-123",
+		History: []ChatMessageDTO{
+			{Role: "user", Content: "first question"},
+			{Role: "assistant", Content: "first answer"},
+		},
+	}
+
+	var decoded AgentPromptRequest
+	raw, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal AgentPromptRequest failed: %v", err)
+	}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("unmarshal AgentPromptRequest failed: %v", err)
+	}
+
+	if decoded.SessionID != "chat-session-123" {
+		t.Errorf("SessionID lost in IPC round-trip: %q", decoded.SessionID)
+	}
+	if len(decoded.History) != 2 || decoded.History[0].Content != "first question" {
+		t.Errorf("History lost in IPC round-trip: %+v", decoded.History)
+	}
+}
