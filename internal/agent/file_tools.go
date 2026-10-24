@@ -462,9 +462,7 @@ func executeArtifactList(ctx context.Context, eng *Engine, artifactsDir string) 
 		versioned = append(versioned, adkVersionedEntry{ArtifactMeta: a})
 	}
 	if eng != nil {
-		for _, ve := range listArtifactsFromADK(ctx, eng, seen) {
-			versioned = append(versioned, ve)
-		}
+		versioned = append(versioned, listArtifactsFromADK(ctx, eng, seen)...)
 	}
 	return map[string]any{
 		"artifacts": versioned,
