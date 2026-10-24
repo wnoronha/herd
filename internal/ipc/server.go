@@ -299,6 +299,14 @@ func (s *Server) dispatchAgent(ctx context.Context, req Request) (Response, bool
 		sResp, err := s.handler.AgentStatus(ctx, &sReq)
 		return toResponse(sResp, err), true
 
+	case "AgentListSessions", "agent_list_sessions", "agent.list_sessions", "agent.sessions":
+		var lReq AgentListSessionsRequest
+		if len(req.Params) > 0 {
+			_ = json.Unmarshal(req.Params, &lReq)
+		}
+		lResp, err := s.handler.AgentListSessions(ctx, &lReq)
+		return toResponse(lResp, err), true
+
 	default:
 		return Response{}, false
 	}

@@ -25,7 +25,10 @@ func (a *AgentRuntime) Start(ctx context.Context) {
 		a.d.Logger.Named("agent").Infof("Seeded default AGENTS.md at %s", seededFile)
 	}
 
-	a.d.AgentEngine = agent.NewEngine(agent.Config{NodeName: a.d.Config.NodeName}, a.d, agentsDir)
+	a.d.AgentEngine = agent.NewEngine(agent.Config{
+		NodeName: a.d.Config.NodeName,
+		StateDir: a.d.Config.StateDir,
+	}, a.d, agentsDir)
 	a.wg.Add(1)
 	go func() {
 		defer a.wg.Done()

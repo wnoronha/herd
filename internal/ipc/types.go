@@ -279,6 +279,21 @@ type AgentPromptChunk struct {
 	Final     *AgentPromptResponse `json:"final,omitempty"`
 }
 
+// AgentSessionInfo summarizes one persisted chat session.
+type AgentSessionInfo struct {
+	ID             string `json:"id"`
+	LastUpdateTime string `json:"last_update_time,omitempty"`
+}
+
+// AgentListSessionsRequest lists persisted chat sessions.
+type AgentListSessionsRequest struct{}
+
+// AgentListSessionsResponse returns persisted chat sessions.
+type AgentListSessionsResponse struct {
+	Sessions []AgentSessionInfo `json:"sessions"`
+	Count    int                `json:"count"`
+}
+
 // MailSendRequest specifies a message to deliver into a target mailbox.
 type MailSendRequest struct {
 	To       string `json:"to"`
@@ -336,6 +351,7 @@ type DaemonHandler interface {
 	KVList(ctx context.Context, req *KVListRequest) (*KVListResponse, error)
 	AgentPrompt(ctx context.Context, req *AgentPromptRequest) (*AgentPromptResponse, error)
 	AgentStatus(ctx context.Context, req *AgentStatusRequest) (*AgentStatusResponse, error)
+	AgentListSessions(ctx context.Context, req *AgentListSessionsRequest) (*AgentListSessionsResponse, error)
 	MailSend(ctx context.Context, req *MailSendRequest) (*MailSendResponse, error)
 	MailList(ctx context.Context, req *MailListRequest) (*MailListResponse, error)
 	MailRead(ctx context.Context, req *MailReadRequest) (*MailReadResponse, error)

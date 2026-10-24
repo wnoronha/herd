@@ -351,3 +351,13 @@ func (d *Daemon) GetDataDir() string {
 	}
 	return ""
 }
+
+// GetStateDir implements agent.ClusterContext.
+func (d *Daemon) GetStateDir() string {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	if d.Config != nil && d.Config.StateDir != "" {
+		return d.Config.StateDir
+	}
+	return ""
+}

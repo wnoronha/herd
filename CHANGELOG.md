@@ -5,6 +5,14 @@ The format follows Keep a Changelog 1.1.0.
 
 ## [Unreleased]
 
+### Added
+- Persist chat sessions in StateDir sessions.db with ADK database service.
+- Add chat list command for persisted sessions.
+- Enable ADK sliding-window compaction for chat sessions.
+
+### Removed
+- Remove in-memory TTL eviction for chat sessions.
+
 ## [0.2.1] - 2026-10-24
 
 ### Added

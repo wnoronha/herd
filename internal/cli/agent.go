@@ -117,13 +117,13 @@ func agentChatAction(targetNode, model, role string) error {
 	}
 
 	fmt.Println("Starting Herd Agent Interactive Chat Session (type 'exit' or 'quit' to end)")
-	fmt.Println("Commands: /tools list tools, /history show turns, /new start session, /resume <id> resume session, /help help")
+	fmt.Println("Commands: /tools list tools, /history show turns, /new start session, /resume <id> resume session, /list list sessions, /help help")
 	fmt.Println("-----------------------------------------------------------------------------")
 
 	// One session UUID for the whole interactive loop so every turn shares
-	// the same ADK InMemoryService conversation.
+	// the same persisted ADK database session (StateDir/sessions.db).
 	chatSessionID := newChatSessionID()
-	fmt.Printf("Session: %s\n", chatSessionID)
+	fmt.Printf("Session: %s (persisted in StateDir/sessions.db)\n", chatSessionID)
 	var historyLog []string
 
 	scanner := bufio.NewScanner(os.Stdin)
@@ -141,7 +141,7 @@ func agentChatAction(targetNode, model, role string) error {
 			break
 		}
 		if cmd, ok := parseChatCommand(line); ok {
-			chatSessionID, historyLog = runChatCommand(cmd, chatSessionID, historyLog)
+			chatSessionID, historyLog = runChatCommand(client, cmd, chatSessionID, historyLog)
 			continue
 		}
 
@@ -215,7 +215,7 @@ func parseChatCommand(line string) (chatCommand, bool) {
 		cmd.arg = strings.TrimSpace(strings.TrimPrefix(line[len(fields[0]):], " "))
 	}
 	switch cmd.name {
-	case "tools", "history", "new", "resume", "help":
+	case "tools", "history", "new", "resume", "list", "help":
 		return cmd, true
 	default:
 		return chatCommand{}, false
@@ -234,8 +234,8 @@ func parseApprovalAnswer(input string) bool {
 }
 
 // runChatCommand executes one slash command and returns the updated session
-// ID and history log.
-func runChatCommand(cmd chatCommand, chatSessionID string, historyLog []string) (string, []string) {
+// ID and history log. /list queries the daemon for persisted sessions.
+func runChatCommand(client *ipc.Client, cmd chatCommand, chatSessionID string, historyLog []string) (string, []string) {
 	switch cmd.name {
 	case "tools":
 		_ = agentToolsAction()
@@ -257,11 +257,36 @@ func runChatCommand(cmd chatCommand, chatSessionID string, historyLog []string) 
 			break
 		}
 		chatSessionID = cmd.arg
-		fmt.Printf("Resumed session: %s (the daemon must still hold it)\n", chatSessionID)
+		historyLog = nil
+		fmt.Printf("Resumed session: %s (persisted in StateDir/sessions.db)\n", chatSessionID)
+	case "list":
+		listChatSessions(client)
 	case "help":
-		fmt.Println("Commands: /tools /history /new /resume <id> /help; exit quit")
+		fmt.Println("Commands: /tools /history /new /resume <id> /list /help; exit quit")
 	}
 	return chatSessionID, historyLog
+}
+
+// listChatSessions prints persisted chat sessions from the daemon.
+func listChatSessions(client *ipc.Client) {
+	if client == nil {
+		fmt.Println("(daemon client unavailable)")
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	resp, err := client.AgentListSessions(ctx)
+	if err != nil {
+		fmt.Printf("Error listing sessions: %v\n", err)
+		return
+	}
+	if resp.Count == 0 || len(resp.Sessions) == 0 {
+		fmt.Println("(no persisted sessions)")
+		return
+	}
+	for i, s := range resp.Sessions {
+		fmt.Printf("  [%d] %s (updated %s)\n", i+1, s.ID, s.LastUpdateTime)
+	}
 }
 
 // sendChatPrompt dispatches one chat turn with an optional yes or no answer

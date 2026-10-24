@@ -459,6 +459,28 @@ func (d *Daemon) AgentPromptStream(ctx context.Context, req *ipc.AgentPromptRequ
 	}, nil
 }
 
+// AgentListSessions implements ipc.DaemonHandler.
+func (d *Daemon) AgentListSessions(ctx context.Context, req *ipc.AgentListSessionsRequest) (*ipc.AgentListSessionsResponse, error) {
+	d.mu.RLock()
+	engine := d.AgentEngine
+	d.mu.RUnlock()
+	if engine == nil {
+		return nil, errors.New("agent engine is not initialized")
+	}
+	sessions, err := engine.ListSessions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := &ipc.AgentListSessionsResponse{Count: len(sessions)}
+	for _, s := range sessions {
+		out.Sessions = append(out.Sessions, ipc.AgentSessionInfo{
+			ID:             s.ID,
+			LastUpdateTime: s.LastUpdateTime.Format("2006-01-02T15:04:05Z07:00"),
+		})
+	}
+	return out, nil
+}
+
 // MailSend implements ipc.DaemonHandler.
 func (d *Daemon) MailSend(ctx context.Context, req *ipc.MailSendRequest) (*ipc.MailSendResponse, error) {
 	if req == nil || req.To == "" {

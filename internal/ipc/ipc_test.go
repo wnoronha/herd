@@ -100,6 +100,13 @@ func (m *mockDaemonHandler) AgentStatus(ctx context.Context, req *AgentStatusReq
 	}, nil
 }
 
+func (m *mockDaemonHandler) AgentListSessions(ctx context.Context, req *AgentListSessionsRequest) (*AgentListSessionsResponse, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return &AgentListSessionsResponse{}, nil
+}
+
 func (m *mockDaemonHandler) CopyFile(ctx context.Context, req *CPRequest) (*CPResponse, error) {
 	if m.err != nil {
 		return nil, m.err

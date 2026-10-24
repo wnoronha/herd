@@ -423,9 +423,9 @@ Use **`herd agent status --probe`** before debugging prompts. Common cases:
 |---|---|
 | `adk_model.go` | Per-request `model.LLM` factory (`gemini.NewModel`, `openaimodel.NewModel` with `APIChatCompletions`) plus the air-gapped two-turn `deterministicLLM`. No `model.Register` global state. |
 | `adk_tools.go` | `herdADKTool` bridge (`tool.Tool` plus `Declaration`, `Run`, `ProcessRequest` via `toolutils.PackTool`), `BeforeToolCallback` exec-policy guard, `OnToolErrorCallback` rejection contract, `run_agent` recursion cap. |
-| `engine.go` | `llmagent.New` with `InstructionProvider` (raw system prompt, no `{template}` injection) plus `runner.Runner` over `session.InMemoryService`; reconstructs `ToolsCalled` matched by call ID in call order. |
+| `engine.go` | `llmagent.New` with `InstructionProvider` (raw system prompt, no `{template}` injection) plus `runner.Runner` over the ADK database session service at `StateDir/sessions.db` with sliding-window compaction; reconstructs `ToolsCalled` matched by call ID in call order. |
 
-System prompts travel via `InstructionProvider` so markdown containing `{curly_braces}` never triggers ADK session-state template errors. Keyless local endpoints receive the placeholder key `ollama` so `openai-go/v3` never fails on a missing `OPENAI_API_KEY`; the default `api.openai.com` endpoint still requires a real key. Stateful chat persists in the shared `InMemoryService` only when the request carries a `SessionID`; one-shot prompts run on an ephemeral service that is discarded after the call, so the daemon never accumulates sessions.
+System prompts travel via `InstructionProvider` so markdown containing `{curly_braces}` never triggers ADK session-state template errors. Keyless local endpoints receive the placeholder key `ollama` so `openai-go/v3` never fails on a missing `OPENAI_API_KEY`; the default `api.openai.com` endpoint still requires a real key. Stateful chat persists in the shared database service at `StateDir/sessions.db` only when the request carries a `SessionID`; one-shot prompts run on an ephemeral in-memory service that is discarded after the call, so the daemon never accumulates sessions. The runner enables ADK sliding-window compaction for chat sessions.
 
 ---
 
@@ -475,7 +475,7 @@ herd agent chat
 herd agent chat --target node-2
 ```
 
-The CLI generates one session UUID for the whole interactive loop and sends it as `session_id` on every IPC prompt. The daemon forwards it into the ADK `InMemoryService`, so each turn sees prior tool outputs. Daemon restarts clear in-memory history; the next turn starts a fresh session without crashing.
+The CLI generates one session UUID for the whole interactive loop and sends it as `session_id` on every IPC prompt. The daemon forwards it into the ADK database session service at `StateDir/sessions.db`, so each turn sees prior tool outputs and chats survive daemon restarts. Use `/new` to start a session, `/resume <id>` to resume one, and `/list` to list persisted sessions.
 
 ### 7.3 Agent Tools Schema Discovery (`herd agent tools`)
 ```bash

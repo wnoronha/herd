@@ -300,6 +300,15 @@ func (c *Client) AgentStatus(ctx context.Context, req *AgentStatusRequest) (*Age
 	return &resp, nil
 }
 
+// AgentListSessions lists persisted chat sessions from the daemon.
+func (c *Client) AgentListSessions(ctx context.Context) (*AgentListSessionsResponse, error) {
+	var resp AgentListSessionsResponse
+	if err := c.Call(ctx, "AgentListSessions", &AgentListSessionsRequest{}, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
 // MailSend sends a message to a target mailbox.
 func (c *Client) MailSend(ctx context.Context, req *MailSendRequest) (*MailSendResponse, error) {
 	var resp MailSendResponse

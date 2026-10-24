@@ -7,16 +7,20 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/glebarez/sqlite"
 	"google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/agent/llmagent"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/adk/v2/runner"
 	"google.golang.org/adk/v2/session"
+	"google.golang.org/adk/v2/session/compaction"
+	"google.golang.org/adk/v2/session/database"
 	"google.golang.org/genai"
 )
 
@@ -32,30 +36,95 @@ type Engine struct {
 	confirm    confirmState
 }
 
-// Persisted-session bounds keep the long-lived daemon from accumulating
-// unbounded chat sessions. Stale sessions expire by TTL; overflow beyond the
-// cap evicts least-recently-updated first. Best-effort: eviction never fails
-// the prompt.
+// herdADKAppName and herdADKUserID match the runner invocation identity
+// in runADKAgent and collectADKTrace.
 const (
-	persistedSessionTTL  = 30 * time.Minute
-	maxPersistedSessions = 100
-	// herdADKAppName and herdADKUserID match the runner invocation identity
-	// in runADKAgent and collectADKTrace.
 	herdADKAppName = "herd"
 	herdADKUserID  = "herd-user"
+	// sessionsDBFile is the SQLite file under StateDir holding chat sessions.
+	sessionsDBFile = "sessions.db"
+	// compactionInterval triggers ADK sliding-window compaction every N
+	// user invocations, keeping long chats bounded without extra daemons.
+	compactionInterval = 10
 )
 
 // sessionService returns the shared ADK session service, creating it lazily.
+// With StateDir set it opens the ADK database service backed by SQLite at
+// StateDir/sessions.db so chats survive daemon restarts; otherwise (tests,
+// empty StateDir, or open failure) it falls back to ADK InMemoryService.
 // Stateful multi-turn chat sessions persist here; one-shot prompts with an
-// empty SessionID use an ephemeral service instead so the long-lived daemon
-// never leaks one session per prompt.
+// empty SessionID use an ephemeral in-memory service instead so the
+// long-lived daemon never leaks one session per prompt.
 func (e *Engine) sessionService() session.Service {
 	e.sessionMu.Lock()
 	defer e.sessionMu.Unlock()
-	if e.sessionSvc == nil {
-		e.sessionSvc = session.InMemoryService()
+	if e.sessionSvc != nil {
+		return e.sessionSvc
 	}
+	if dir := strings.TrimSpace(e.config.StateDir); dir != "" {
+		if svc, err := openDatabaseSessionService(dir); err == nil {
+			e.sessionSvc = svc
+			return e.sessionSvc
+		}
+	}
+	if e.cctx != nil {
+		if dir := strings.TrimSpace(e.cctx.GetStateDir()); dir != "" {
+			if svc, err := openDatabaseSessionService(dir); err == nil {
+				e.sessionSvc = svc
+				return e.sessionSvc
+			}
+		}
+	}
+	e.sessionSvc = session.InMemoryService()
 	return e.sessionSvc
+}
+
+// openDatabaseSessionService opens the ADK database session service at
+// dir/sessions.db, running AutoMigrate on every startup as ADK requires.
+func openDatabaseSessionService(dir string) (session.Service, error) {
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return nil, err
+	}
+	dbPath := filepath.Join(dir, sessionsDBFile)
+	svc, err := database.NewSessionService(sqlite.Open(dbPath))
+	if err != nil {
+		return nil, err
+	}
+	if err := database.AutoMigrate(svc); err != nil {
+		return nil, err
+	}
+	return svc, nil
+}
+
+// compactionConfig enables ADK sliding-window compaction for chat sessions.
+func compactionConfig() *compaction.Config {
+	return &compaction.Config{CompactionInterval: compactionInterval}
+}
+
+// SessionInfo summarizes one persisted chat session for list/resume.
+type SessionInfo struct {
+	ID             string    `json:"id"`
+	LastUpdateTime time.Time `json:"last_update_time"`
+}
+
+// ListSessions returns persisted chat sessions for the Herd app/user.
+func (e *Engine) ListSessions(ctx context.Context) ([]SessionInfo, error) {
+	svc := e.sessionService()
+	list, err := svc.List(ctx, &session.ListRequest{AppName: herdADKAppName, UserID: herdADKUserID})
+	if err != nil {
+		return nil, err
+	}
+	var out []SessionInfo
+	if list == nil {
+		return out, nil
+	}
+	for _, s := range list.Sessions {
+		if s == nil {
+			continue
+		}
+		out = append(out, SessionInfo{ID: s.ID(), LastUpdateTime: s.LastUpdateTime()})
+	}
+	return out, nil
 }
 
 // newSessionID generates a unique session identifier.
@@ -457,15 +526,14 @@ func (e *Engine) runADKAgentStreaming(ctx context.Context, req *PromptRequest, e
 	if sessionID == "" {
 		svc = session.InMemoryService()
 		sessionID = newSessionID()
-	} else {
-		e.evictStaleSessions(ctx, svc)
 	}
 
 	r, err := runner.New(runner.Config{
-		AppName:           "herd",
+		AppName:           herdADKAppName,
 		Agent:             adkAgent,
 		SessionService:    svc,
 		AutoCreateSession: true,
+		Compaction:        compactionConfig(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ADK runner: %w", err)
@@ -643,20 +711,21 @@ func (e *Engine) runADKAgent(ctx context.Context, req *PromptRequest, effCfg Con
 	// Session handling: persist only when the caller supplies a SessionID.
 	// One-shot prompts run on an ephemeral service that is discarded with the
 	// call, so the daemon never accumulates unbounded sessions.
+	// Persistence is the ADK database service at StateDir/sessions.db, so
+	// chats survive daemon restarts. ADK compaction bounds prompt growth.
 	svc := e.sessionService()
 	sessionID := req.SessionID
 	if sessionID == "" {
 		svc = session.InMemoryService()
 		sessionID = newSessionID()
-	} else {
-		e.evictStaleSessions(ctx, svc)
 	}
 
 	r, err := runner.New(runner.Config{
-		AppName:           "herd",
+		AppName:           herdADKAppName,
 		Agent:             adkAgent,
 		SessionService:    svc,
 		AutoCreateSession: true,
+		Compaction:        compactionConfig(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ADK runner: %w", err)
@@ -685,36 +754,6 @@ func (e *Engine) runADKAgent(ctx context.Context, req *PromptRequest, effCfg Con
 		resp.Confirmation = &prompt
 	}
 	return resp, nil
-}
-
-// evictStaleSessions removes persisted sessions older than
-// persistedSessionTTL and, on overflow beyond maxPersistedSessions, the
-// least-recently-updated extras. Errors are ignored: eviction is best-effort.
-func (e *Engine) evictStaleSessions(ctx context.Context, svc session.Service) {
-	list, err := svc.List(ctx, &session.ListRequest{AppName: herdADKAppName, UserID: herdADKUserID})
-	if err != nil || list == nil {
-		return
-	}
-	var live []session.Session
-	for _, s := range list.Sessions {
-		if s == nil {
-			continue
-		}
-		if time.Since(s.LastUpdateTime()) > persistedSessionTTL {
-			_ = svc.Delete(ctx, &session.DeleteRequest{AppName: herdADKAppName, UserID: herdADKUserID, SessionID: s.ID()})
-			continue
-		}
-		live = append(live, s)
-	}
-	if len(live) <= maxPersistedSessions {
-		return
-	}
-	sort.Slice(live, func(i, j int) bool {
-		return live[i].LastUpdateTime().Before(live[j].LastUpdateTime())
-	})
-	for _, s := range live[:len(live)-maxPersistedSessions] {
-		_ = svc.Delete(ctx, &session.DeleteRequest{AppName: herdADKAppName, UserID: herdADKUserID, SessionID: s.ID()})
-	}
 }
 
 // resolveSystemPrompt returns the effective system prompt with the target-node

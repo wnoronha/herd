@@ -18,6 +18,7 @@ func TestParseChatCommand(t *testing.T) {
 		{"/new", true, "new", ""},
 		{"/resume chat-abc123", true, "resume", "chat-abc123"},
 		{"/RESUME chat-abc123", true, "resume", "chat-abc123"},
+		{"/list", true, "list", ""},
 		{"/help", true, "help", ""},
 		{"run uptime on all nodes", false, "", ""},
 		{"exit", false, "", ""},
@@ -69,7 +70,7 @@ func TestAppendChatHistory(t *testing.T) {
 // TestRunChatCommand verifies /new rotates the session and /resume adopts
 // the given ID while exit words stay plain prompts.
 func TestRunChatCommand(t *testing.T) {
-	id, log := runChatCommand(chatCommand{name: "new"}, "chat-old", []string{"user: hi"})
+	id, log := runChatCommand(nil, chatCommand{name: "new"}, "chat-old", []string{"user: hi"})
 	if id == "chat-old" || id == "" {
 		t.Errorf("expected /new to rotate the session, got %q", id)
 	}
@@ -77,13 +78,18 @@ func TestRunChatCommand(t *testing.T) {
 		t.Errorf("expected /new to reset history, got %v", log)
 	}
 
-	id, _ = runChatCommand(chatCommand{name: "resume", arg: "chat-abc"}, "chat-old", nil)
+	id, _ = runChatCommand(nil, chatCommand{name: "resume", arg: "chat-abc"}, "chat-old", nil)
 	if id != "chat-abc" {
 		t.Errorf("expected /resume to adopt the ID, got %q", id)
 	}
 
-	id, _ = runChatCommand(chatCommand{name: "resume"}, "chat-old", nil)
+	id, _ = runChatCommand(nil, chatCommand{name: "resume"}, "chat-old", nil)
 	if id != "chat-old" {
 		t.Errorf("expected bare /resume to keep the session, got %q", id)
+	}
+
+	id, _ = runChatCommand(nil, chatCommand{name: "list"}, "chat-old", nil)
+	if id != "chat-old" {
+		t.Errorf("expected /list to keep the session, got %q", id)
 	}
 }

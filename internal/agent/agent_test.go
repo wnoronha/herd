@@ -59,6 +59,10 @@ func (m *mockClusterContext) GetDataDir() string {
 	return ""
 }
 
+func (m *mockClusterContext) GetStateDir() string {
+	return ""
+}
+
 // isolateAgentEnv scrubs cloud-model env and disables Ollama auto-probe so
 // fallback/classification tests are deterministic on any machine (a runner
 // with `ollama serve` or leaked keys must not flip results).

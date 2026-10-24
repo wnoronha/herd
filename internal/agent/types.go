@@ -19,6 +19,9 @@ type Config struct {
 	OllamaHost    string
 	SystemPrompt  string
 	Timeout       time.Duration
+	// StateDir is the XDG state directory for persistent chat sessions
+	// (sessions.db). Empty disables disk persistence (in-memory fallback).
+	StateDir string
 }
 
 // AgentClusterConfig represents the JSON structure stored in KV under agent:config:*

@@ -22,6 +22,8 @@ type ClusterContext interface {
 	ExecuteCommand(ctx context.Context, req *ipc.ExecRequest) (*ipc.ExecResponse, error)
 	CopyFile(ctx context.Context, req *ipc.CPRequest) (*ipc.CPResponse, error)
 	GetDataDir() string
+	// GetStateDir returns the XDG state dir for persistent sessions/artifacts.
+	GetStateDir() string
 	JoinNode(ctx context.Context, addr string) (*ipc.JoinResponse, error)
 	LeaveCluster(ctx context.Context) (*ipc.LeaveResponse, error)
 	GetStatus(ctx context.Context) (*ipc.StatusResponse, error)
