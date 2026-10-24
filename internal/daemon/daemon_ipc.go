@@ -344,6 +344,93 @@ func (d *Daemon) AgentPrompt(ctx context.Context, req *ipc.AgentPromptRequest) (
 	}, nil
 }
 
+// AgentPromptStream implements streaming chat over the existing IPC channel.
+// It forwards partial text and dispatched tool calls as chunks, then returns
+// the same final response as AgentPrompt for the Done frame.
+func (d *Daemon) AgentPromptStream(ctx context.Context, req *ipc.AgentPromptRequest, yield func(chunk ipc.AgentPromptChunk) bool) (*ipc.AgentPromptResponse, error) {
+	if req == nil || req.Prompt == "" {
+		return nil, errors.New("prompt cannot be empty")
+	}
+
+	d.mu.RLock()
+	engine := d.AgentEngine
+	d.mu.RUnlock()
+
+	if engine == nil {
+		return nil, errors.New("agent engine is not initialized")
+	}
+
+	pReq := &agent.PromptRequest{
+		Prompt:     req.Prompt,
+		TargetNode: req.TargetNode,
+		Role:       req.Role,
+		Model:      req.Model,
+		Provider:   req.Provider,
+		SessionID:  req.SessionID,
+	}
+	for _, h := range req.History {
+		pReq.History = append(pReq.History, agent.ChatMessage{
+			Role:    h.Role,
+			Content: h.Content,
+			Name:    h.Name,
+		})
+	}
+
+	d.Logger.Named("agent").Infof("Received streaming prompt: %q", req.Prompt)
+
+	resp, err := engine.ExecutePromptStreaming(ctx, pReq, func(ev agent.StreamEvent) bool {
+		var chunk ipc.AgentPromptChunk
+		if ev.ToolCall != nil {
+			chunk.ToolCall = &ipc.ToolCallDTO{
+				Name:      ev.ToolCall.Name,
+				Arguments: ev.ToolCall.Arguments,
+				Result:    ev.ToolCall.Result,
+			}
+		} else {
+			chunk.TextDelta = ev.TextDelta
+		}
+		return yield(chunk)
+	})
+	if err != nil {
+		d.Logger.Named("agent").Errorf("Streaming execution failed: %v", err)
+		return nil, err
+	}
+
+	d.Logger.Named("agent").Infof("Streaming prompt completed in %dms (model: %s, tools called: %d)",
+		resp.ExecutionMs, resp.ModelUsed, len(resp.ToolsCalled))
+
+	var toolsDTO []ipc.ToolCallDTO
+	for _, tc := range resp.ToolsCalled {
+		toolsDTO = append(toolsDTO, ipc.ToolCallDTO{
+			Name:      tc.Name,
+			Arguments: tc.Arguments,
+			Result:    tc.Result,
+		})
+	}
+
+	nodeName := resp.NodeName
+	if nodeName == "" {
+		nodeName = d.Config.NodeName
+	}
+	agentRole := resp.AgentRole
+	if agentRole == "" {
+		if req.Role != "" {
+			agentRole = req.Role
+		} else {
+			agentRole = "coordinator"
+		}
+	}
+
+	return &ipc.AgentPromptResponse{
+		Response:    resp.Response,
+		ToolsCalled: toolsDTO,
+		ModelUsed:   resp.ModelUsed,
+		ExecutionMs: resp.ExecutionMs,
+		NodeName:    nodeName,
+		AgentRole:   agentRole,
+	}, nil
+}
+
 // MailSend implements ipc.DaemonHandler.
 func (d *Daemon) MailSend(ctx context.Context, req *ipc.MailSendRequest) (*ipc.MailSendResponse, error) {
 	if req == nil || req.To == "" {

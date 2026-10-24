@@ -312,6 +312,194 @@ func isDeterministicLLM(llm model.LLM) bool {
 	return ok
 }
 
+// StreamEvent carries one partial agent event to streaming callers.
+type StreamEvent struct {
+	TextDelta string
+	ToolCall  *ToolCall
+}
+
+// ExecutePromptStreaming runs a task prompt and invokes yield for each
+// partial text delta and dispatched tool call as ADK events arrive. It
+// returns the same final PromptResponse as ExecutePrompt.
+func (e *Engine) ExecutePromptStreaming(ctx context.Context, req *PromptRequest, yield func(ev StreamEvent) bool) (*PromptResponse, error) {
+	if req == nil || req.Prompt == "" {
+		return nil, errors.New("prompt cannot be empty")
+	}
+	ctx = contextWithRunAgentDepth(ctx)
+
+	start := time.Now()
+	effCfg, allowedTools, err := e.effectiveConfigForRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	llm, modelUsed, hint, llmErr := e.resolveADKModel(ctx, effCfg)
+	if llmErr != nil {
+		return nil, llmErr
+	}
+	if llm == nil {
+		if hint != "" {
+			hint = "Ollama auto-probe: " + hint
+		}
+		llm = newDeterministicLLM(e.validateExecPolicy, hint)
+		modelUsed = deterministicModelName
+	}
+
+	resp, err := e.runADKAgentStreaming(ctx, req, effCfg, allowedTools, start, llm, modelUsed, false, yield)
+	if err != nil {
+		if llm != nil && !isDeterministicLLM(llm) && isToolUnsupportedError(err) {
+			retryResp, retryErr := e.runADKAgentStreaming(ctx, req, effCfg, nil, start, llm, modelUsed, true, yield)
+			if retryErr != nil {
+				return nil, retryErr
+			}
+			resp = retryResp
+		} else {
+			return nil, err
+		}
+	}
+
+	if resp != nil {
+		resp.NodeName = e.config.NodeName
+		if req.Role != "" {
+			resp.AgentRole = req.Role
+		} else {
+			resp.AgentRole = "coordinator"
+		}
+	}
+
+	return resp, nil
+}
+
+// runADKAgentStreaming mirrors runADKAgent but forwards partial text and
+// tool dispatches to yield as the runner event stream arrives.
+func (e *Engine) runADKAgentStreaming(ctx context.Context, req *PromptRequest, effCfg Config, allowedTools []string, start time.Time, llm model.LLM, modelUsed string, toolsNil bool, yield func(ev StreamEvent) bool) (*PromptResponse, error) {
+	systemPrompt := e.resolveSystemPrompt(effCfg, req)
+
+	tools := e.buildADKTools(allowedTools)
+	if toolsNil {
+		tools = nil
+	}
+
+	cfg := llmagent.Config{
+		Name:        "herd-agent",
+		Description: "Herd mesh cluster agent",
+		Model:       llm,
+		InstructionProvider: func(_ agent.ReadonlyContext) (string, error) {
+			return systemPrompt, nil
+		},
+		Tools:                tools,
+		BeforeToolCallbacks:  []llmagent.BeforeToolCallback{herdBeforeToolCallback(e)},
+		OnToolErrorCallbacks: []llmagent.OnToolErrorCallback{herdOnToolErrorCallback()},
+	}
+	adkAgent, err := llmagent.New(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create ADK agent: %w", err)
+	}
+
+	svc := e.sessionService()
+	sessionID := req.SessionID
+	if sessionID == "" {
+		svc = session.InMemoryService()
+		sessionID = newSessionID()
+	} else {
+		e.evictStaleSessions(ctx, svc)
+	}
+
+	r, err := runner.New(runner.Config{
+		AppName:           "herd",
+		Agent:             adkAgent,
+		SessionService:    svc,
+		AutoCreateSession: true,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create ADK runner: %w", err)
+	}
+
+	msg := &genai.Content{
+		Role:  "user",
+		Parts: []*genai.Part{{Text: foldHistoryIntoPrompt(req)}},
+	}
+
+	trace, err := collectADKTraceStreaming(ctx, r, sessionID, msg, yield)
+	if err != nil {
+		return nil, err
+	}
+
+	return &PromptResponse{
+		Response:    trace.text,
+		ToolsCalled: trace.toolsCalled,
+		ModelUsed:   modelUsed,
+		ExecutionMs: time.Since(start).Milliseconds(),
+	}, nil
+}
+
+// collectADKTraceStreaming drains the runner event stream like
+// collectADKTrace while forwarding partial text and tool dispatches.
+func collectADKTraceStreaming(ctx context.Context, r *runner.Runner, sessionID string, msg *genai.Content, yield func(ev StreamEvent) bool) (*adkTrace, error) {
+	pending := map[string]*pendingCall{}
+	var order []string
+	results := map[string]string{}
+	var finalResponse strings.Builder
+	streaming := yield != nil
+
+	emit := func(ev StreamEvent) {
+		if !streaming {
+			return
+		}
+		// Best-effort: a closed chat window stops rendering but the run
+		// still completes so the final response stays accurate.
+		defer func() { _ = recover() }()
+		if !yield(ev) {
+			streaming = false
+		}
+	}
+
+	for ev, rerr := range r.Run(ctx, "herd-user", sessionID, msg, agent.RunConfig{}) {
+		if rerr != nil {
+			return nil, rerr
+		}
+		if ev == nil || ev.Content == nil {
+			continue
+		}
+		isUserEvent := ev.Content.Role == "user"
+		for _, part := range ev.Content.Parts {
+			if part == nil {
+				continue
+			}
+			switch {
+			case part.FunctionCall != nil:
+				recordFunctionCall(pending, &order, part.FunctionCall)
+				argBytes, _ := json.Marshal(part.FunctionCall.Args)
+				if argBytes == nil {
+					argBytes = []byte("{}")
+				}
+				emit(StreamEvent{ToolCall: &ToolCall{
+					Name:      part.FunctionCall.Name,
+					Arguments: string(argBytes),
+				}})
+			case part.FunctionResponse != nil:
+				results[part.FunctionResponse.ID] = marshalResponseMap(part.FunctionResponse.Response)
+			case part.Text != "":
+				if !isUserEvent {
+					finalResponse.WriteString(part.Text)
+					emit(StreamEvent{TextDelta: part.Text})
+				}
+			}
+		}
+	}
+
+	var toolsCalled []ToolCall
+	for _, id := range order {
+		p := pending[id]
+		toolsCalled = append(toolsCalled, ToolCall{
+			Name:      p.name,
+			Arguments: p.args,
+			Result:    results[id],
+		})
+	}
+	return &adkTrace{toolsCalled: toolsCalled, text: finalResponse.String()}, nil
+}
+
 // resolveADKModel picks the ADK model for the effective config: explicit
 // Gemini, explicit OpenAI-compatible, auto-probed local Ollama, or nil (the
 // caller substitutes deterministicLLM) with a human-readable hint.

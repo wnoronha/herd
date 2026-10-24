@@ -147,7 +147,16 @@ func agentChatAction(targetNode, model, role string) error {
 			SessionID:  chatSessionID,
 		}
 
-		resp, err := client.AgentPrompt(ctx, req)
+		resp, err := client.AgentPromptStream(ctx, req, func(chunk ipc.AgentPromptChunk) error {
+			if chunk.ToolCall != nil {
+				fmt.Printf("\n  [tool] %s(%s)\n", chunk.ToolCall.Name, chunk.ToolCall.Arguments)
+				return nil
+			}
+			if chunk.TextDelta != "" {
+				fmt.Print(chunk.TextDelta)
+			}
+			return nil
+		})
 		cancel()
 
 		if err != nil {
@@ -155,13 +164,7 @@ func agentChatAction(targetNode, model, role string) error {
 			continue
 		}
 
-		if len(resp.ToolsCalled) > 0 {
-			for _, tc := range resp.ToolsCalled {
-				fmt.Printf("  [tool] %s(%s)\n", tc.Name, tc.Arguments)
-			}
-		}
-
-		fmt.Println(resp.Response)
+		fmt.Println()
 		chatNode := resp.NodeName
 		if chatNode == "" {
 			chatNode = cfg.NodeName

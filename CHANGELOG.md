@@ -3,6 +3,11 @@
 This file records notable project items.
 The format follows Keep a Changelog 1.1.0.
 
+## [Unreleased]
+
+### Added
+- Add streaming agent responses over IPC.
+
 ## [v0.2.0] - 2026-10-20
 
 ### Added

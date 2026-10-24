@@ -181,6 +181,7 @@ type AgentPromptRequest struct {
 	Role       string           `json:"role,omitempty"`
 	SessionID  string           `json:"session_id,omitempty"`
 	History    []ChatMessageDTO `json:"history,omitempty"`
+	Stream     bool             `json:"stream,omitempty"`
 }
 
 // ChatMessageDTO carries one conversation message for session continuity.
@@ -257,6 +258,16 @@ type AgentPromptResponse struct {
 	ExecutionMs int64         `json:"execution_ms"`
 	NodeName    string        `json:"node_name,omitempty"`
 	AgentRole   string        `json:"agent_role,omitempty"`
+}
+
+// AgentPromptChunk carries one streaming event over the existing IPC channel.
+// TextDelta holds partial model text, ToolCall notifies a dispatched tool,
+// and Done with Final terminates the stream with the full unary response.
+type AgentPromptChunk struct {
+	TextDelta string               `json:"text_delta,omitempty"`
+	ToolCall  *ToolCallDTO         `json:"tool_call,omitempty"`
+	Done      bool                 `json:"done,omitempty"`
+	Final     *AgentPromptResponse `json:"final,omitempty"`
 }
 
 // MailSendRequest specifies a message to deliver into a target mailbox.

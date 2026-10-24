@@ -115,6 +115,13 @@ func (s *Server) acceptLoop() {
 	}
 }
 
+// agentStreamer is an optional DaemonHandler extension for streaming chat.
+// Handlers that implement it serve AgentPrompt requests with Stream=true as
+// a sequence of AgentPromptChunk frames over the same Unix socket.
+type agentStreamer interface {
+	AgentPromptStream(ctx context.Context, req *AgentPromptRequest, yield func(chunk AgentPromptChunk) bool) (*AgentPromptResponse, error)
+}
+
 func (s *Server) handleConnection(conn net.Conn) {
 	reader := bufio.NewReader(conn)
 	writer := bufio.NewWriter(conn)
@@ -133,6 +140,10 @@ func (s *Server) handleConnection(conn net.Conn) {
 		var req Request
 		if err := json.Unmarshal(line, &req); err != nil {
 			s.writeResponse(writer, Response{Success: false, Error: "invalid request payload: " + err.Error()})
+			continue
+		}
+
+		if s.tryServeAgentPromptStream(writer, connCtx, req) {
 			continue
 		}
 
@@ -160,6 +171,73 @@ func (s *Server) dispatch(ctx context.Context, req Request) Response {
 		return resp
 	}
 	return Response{Success: false, Error: fmt.Sprintf("unknown method: %s", req.Method)}
+}
+
+// tryServeAgentPromptStream handles AgentPrompt requests with Stream=true by
+// writing a sequence of AgentPromptChunk frames over the same Unix socket.
+// It returns false when the request is not a streaming agent prompt or the
+// handler does not implement streaming, in which case the caller falls back
+// to the unary dispatch path so one-shot prompts stay unchanged.
+func (s *Server) tryServeAgentPromptStream(writer *bufio.Writer, connCtx context.Context, req Request) bool {
+	switch req.Method {
+	case "AgentPrompt", "agent_prompt", "agent.prompt":
+	default:
+		return false
+	}
+	if len(req.Params) == 0 {
+		return false
+	}
+	var pReq AgentPromptRequest
+	if err := json.Unmarshal(req.Params, &pReq); err != nil {
+		return false
+	}
+	if !pReq.Stream {
+		return false
+	}
+	streamer, ok := s.handler.(agentStreamer)
+	if !ok {
+		// Backward-compatible fallback: run the unary handler and wrap the
+		// full response in a single Done chunk so streaming clients still
+		// terminate without requiring a new port or method.
+		reqCtx, reqCancel := context.WithCancel(connCtx)
+		defer reqCancel()
+		pResp, err := s.handler.AgentPrompt(reqCtx, &pReq)
+		if err != nil {
+			s.writeResponse(writer, Response{Success: false, Error: err.Error()})
+			return true
+		}
+		done := AgentPromptChunk{Done: true, Final: pResp}
+		raw, merr := json.Marshal(done)
+		if merr != nil {
+			s.writeResponse(writer, Response{Success: false, Error: "failed to marshal final chunk: " + merr.Error()})
+			return true
+		}
+		s.writeResponse(writer, Response{Success: true, Result: raw})
+		return true
+	}
+	reqCtx, reqCancel := context.WithCancel(connCtx)
+	defer reqCancel()
+	writeChunk := func(chunk AgentPromptChunk) bool {
+		raw, err := json.Marshal(chunk)
+		if err != nil {
+			return false
+		}
+		s.writeResponse(writer, Response{Success: true, Result: raw})
+		return true
+	}
+	final, err := streamer.AgentPromptStream(reqCtx, &pReq, writeChunk)
+	if err != nil {
+		s.writeResponse(writer, Response{Success: false, Error: err.Error()})
+		return true
+	}
+	done := AgentPromptChunk{Done: true, Final: final}
+	raw, err := json.Marshal(done)
+	if err != nil {
+		s.writeResponse(writer, Response{Success: false, Error: "failed to marshal final chunk: " + err.Error()})
+		return true
+	}
+	s.writeResponse(writer, Response{Success: true, Result: raw})
+	return true
 }
 
 func (s *Server) dispatchMail(ctx context.Context, req Request) (Response, bool) {

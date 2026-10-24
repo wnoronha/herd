@@ -217,6 +217,77 @@ func (c *Client) AgentPrompt(ctx context.Context, req *AgentPromptRequest) (*Age
 	return &resp, nil
 }
 
+// AgentPromptStream sends a chat prompt and invokes onChunk for each partial
+// text or tool event as it arrives over the same Unix socket. It returns the
+// final unary response from the terminating Done chunk so one-shot callers
+// keep their existing contract.
+func (c *Client) AgentPromptStream(ctx context.Context, req *AgentPromptRequest, onChunk func(chunk AgentPromptChunk) error) (*AgentPromptResponse, error) {
+	streamReq := *req
+	streamReq.Stream = true
+
+	deadline := time.Now().Add(c.timeout)
+	if ctxDeadline, ok := ctx.Deadline(); ok {
+		deadline = ctxDeadline
+	}
+
+	dialer := net.Dialer{Deadline: deadline}
+	conn, err := dialer.DialContext(ctx, "unix", c.socketPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to herd daemon at %s: %w", c.socketPath, err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	if err := conn.SetDeadline(deadline); err != nil {
+		return nil, fmt.Errorf("failed to set connection deadline: %w", err)
+	}
+
+	rawParams, err := json.Marshal(streamReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode request params: %w", err)
+	}
+	wireReq := Request{Method: "AgentPrompt", Params: rawParams}
+	reqBytes, err := json.Marshal(wireReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode request: %w", err)
+	}
+	reqBytes = append(reqBytes, '\n')
+	if _, err := conn.Write(reqBytes); err != nil {
+		return nil, fmt.Errorf("failed to write request: %w", err)
+	}
+
+	reader := bufio.NewReader(conn)
+	for {
+		line, err := reader.ReadBytes('\n')
+		if err != nil {
+			return nil, fmt.Errorf("failed to read stream chunk: %w", err)
+		}
+		var resp Response
+		if err := json.Unmarshal(line, &resp); err != nil {
+			return nil, fmt.Errorf("failed to decode stream frame: %w", err)
+		}
+		if !resp.Success {
+			return nil, errors.New(resp.Error)
+		}
+		var chunk AgentPromptChunk
+		if len(resp.Result) > 0 {
+			if err := json.Unmarshal(resp.Result, &chunk); err != nil {
+				return nil, fmt.Errorf("failed to decode stream chunk: %w", err)
+			}
+		}
+		if chunk.Done {
+			if chunk.Final == nil {
+				return nil, errors.New("stream ended without final response")
+			}
+			return chunk.Final, nil
+		}
+		if onChunk != nil {
+			if err := onChunk(chunk); err != nil {
+				return nil, err
+			}
+		}
+	}
+}
+
 // AgentStatus returns agent backend configuration and persona status for the local daemon.
 func (c *Client) AgentStatus(ctx context.Context, req *AgentStatusRequest) (*AgentStatusResponse, error) {
 	if req == nil {
@@ -255,4 +326,3 @@ func (c *Client) MailRead(ctx context.Context, req *MailReadRequest) (*MailReadR
 	}
 	return &resp, nil
 }
-
