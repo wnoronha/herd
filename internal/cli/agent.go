@@ -3,6 +3,8 @@ package cli
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +15,15 @@ import (
 	"github.com/wnoronha/herd/internal/config"
 	"github.com/wnoronha/herd/internal/ipc"
 )
+
+// newChatSessionID generates a unique ID for one interactive chat session.
+func newChatSessionID() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return fmt.Sprintf("chat-%d", time.Now().UnixNano())
+	}
+	return "chat-" + hex.EncodeToString(b[:])
+}
 
 func agentInitAction(dir, forNode string, force, global bool) error {
 	targetDir := dir
@@ -108,6 +119,10 @@ func agentChatAction(targetNode, model, role string) error {
 	fmt.Println("Starting Herd Agent Interactive Chat Session (type 'exit' or 'quit' to end)")
 	fmt.Println("-----------------------------------------------------------------------------")
 
+	// One session UUID for the whole interactive loop so every turn shares
+	// the same ADK InMemoryService conversation.
+	chatSessionID := newChatSessionID()
+
 	scanner := bufio.NewScanner(os.Stdin)
 	for {
 		fmt.Print("herd> ")
@@ -129,6 +144,7 @@ func agentChatAction(targetNode, model, role string) error {
 			TargetNode: targetNode,
 			Model:      model,
 			Role:       role,
+			SessionID:  chatSessionID,
 		}
 
 		resp, err := client.AgentPrompt(ctx, req)

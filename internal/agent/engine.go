@@ -2,21 +2,54 @@ package agent
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
+
+	"google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/agent/llmagent"
+	"google.golang.org/adk/v2/model"
+	"google.golang.org/adk/v2/runner"
+	"google.golang.org/adk/v2/session"
+	"google.golang.org/genai"
 )
 
-// Engine orchestrates AI agent prompt processing, tool dispatch, and reasoning loops.
+// Engine orchestrates AI agent prompt processing through ADK llmagent + runner.
 type Engine struct {
-	config Config
-	tools  map[string]ToolDefinition
-	cctx   ClusterContext
-	agents map[string]*AgentDefinition
-	mu     sync.RWMutex
+	config     Config
+	tools      map[string]ToolDefinition
+	cctx       ClusterContext
+	agents     map[string]*AgentDefinition
+	mu         sync.RWMutex
+	sessionSvc session.Service
+	sessionMu  sync.Mutex
+}
+
+// sessionService returns the shared ADK session service, creating it lazily.
+// Stateful multi-turn chat sessions persist here; one-shot prompts with an
+// empty SessionID use an ephemeral service instead so the long-lived daemon
+// never leaks one session per prompt.
+func (e *Engine) sessionService() session.Service {
+	e.sessionMu.Lock()
+	defer e.sessionMu.Unlock()
+	if e.sessionSvc == nil {
+		e.sessionSvc = session.InMemoryService()
+	}
+	return e.sessionSvc
+}
+
+// newSessionID generates a unique session identifier.
+func newSessionID() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return fmt.Sprintf("herd-%d", time.Now().UnixNano())
+	}
+	return "herd-" + hex.EncodeToString(b[:])
 }
 
 // NewEngine initializes an agent engine instance with the default cluster tools.
@@ -201,11 +234,15 @@ func (e *Engine) effectiveConfigForRequest(req *PromptRequest) (Config, []string
 	return effCfg, allowedTools, nil
 }
 
-// ExecutePrompt runs a task prompt through the agent reasoning and tool loop.
+// ExecutePrompt runs a task prompt through the ADK llmagent + runner loop.
+// System prompts travel via llmagent InstructionProvider so markdown prompts
+// containing {curly_braces} never trigger ADK session-state template errors.
+// The run_agent delegation depth travels in ctx to cap recursive self-delegation.
 func (e *Engine) ExecutePrompt(ctx context.Context, req *PromptRequest) (*PromptResponse, error) {
 	if req == nil || req.Prompt == "" {
 		return nil, errors.New("prompt cannot be empty")
 	}
+	ctx = contextWithRunAgentDepth(ctx)
 
 	start := time.Now()
 	effCfg, allowedTools, err := e.effectiveConfigForRequest(req)
@@ -213,43 +250,34 @@ func (e *Engine) ExecutePrompt(ctx context.Context, req *PromptRequest) (*Prompt
 		return nil, err
 	}
 
-	var resp *PromptResponse
-	var ollamaHint string
-
-	// 1. Explicit Gemini Provider or Gemini API key
-	if effCfg.Provider == "gemini" || (effCfg.APIKey != "" && effCfg.Provider != "openai") {
-		resp, err = e.executeWithGemini(ctx, req, effCfg, allowedTools, start)
-	} else if openAIPathExplicit(effCfg) {
-		resp, err = e.executeWithOpenAI(ctx, req, effCfg, allowedTools, start)
-		if err != nil {
-			if effCfg.Provider == "openai" || effCfg.OpenAIAPIKey != "" {
-				// Explicit selection failed — propagate as hard error.
-				return nil, err
-			}
-			// Opportunistic attempt (env-based) failed — surface the real
-			// cause in the fallback hint instead of a confusing Ollama hint.
-			ollamaHint = "OpenAI attempt failed (" + err.Error() + ");"
-			err = nil
+	llm, modelUsed, hint, llmErr := e.resolveADKModel(ctx, effCfg)
+	if llmErr != nil {
+		return nil, llmErr
+	}
+	// Deterministic fallback still runs inside ADK so 100% of tool execution
+	// and tracing stays unified; the auto-probe hint surfaces in the no-match
+	// note, preserving the legacy coordinator contract.
+	if llm == nil {
+		if hint != "" {
+			hint = "Ollama auto-probe: " + hint
 		}
+		llm = newDeterministicLLM(e.validateExecPolicy, hint)
+		modelUsed = deterministicModelName
 	}
 
-	if resp == nil && err == nil {
-		// 3. Auto-probe local Ollama (OpenAI-compatible /v1 with tools, then native /api/chat)
-		var autoHint string
-		resp, autoHint, err = e.tryAutoOllamaBackends(ctx, req, effCfg, allowedTools, start)
-		if err != nil {
+	resp, err := e.runADKAgent(ctx, req, effCfg, allowedTools, start, llm, modelUsed, false)
+	if err != nil {
+		// Tool-less retry for local models without tool support: same ADK
+		// openaimodel + llmagent with Tools: nil on HTTP 400.
+		if llm != nil && !isDeterministicLLM(llm) && isToolUnsupportedError(err) {
+			retryResp, retryErr := e.runADKAgent(ctx, req, effCfg, nil, start, llm, modelUsed, true)
+			if retryErr != nil {
+				return nil, retryErr
+			}
+			resp = retryResp
+		} else {
 			return nil, err
 		}
-		ollamaHint += autoHint
-	}
-
-	if resp == nil && err == nil {
-		// 4. Fallback: Heuristic Deterministic Coordinator for zero-config offline operations
-		resp, err = e.executeDeterministicFallback(ctx, req, allowedTools, start, ollamaHint)
-	}
-
-	if err != nil {
-		return nil, err
 	}
 
 	if resp != nil {
@@ -262,4 +290,235 @@ func (e *Engine) ExecutePrompt(ctx context.Context, req *PromptRequest) (*Prompt
 	}
 
 	return resp, nil
+}
+
+// isDeterministicLLM reports whether llm is the air-gapped fallback.
+func isDeterministicLLM(llm model.LLM) bool {
+	_, ok := llm.(*deterministicLLM)
+	return ok
+}
+
+// resolveADKModel picks the ADK model for the effective config: explicit
+// Gemini, explicit OpenAI-compatible, auto-probed local Ollama, or nil (the
+// caller substitutes deterministicLLM) with a human-readable hint.
+func (e *Engine) resolveADKModel(ctx context.Context, effCfg Config) (model.LLM, string, string, error) {
+	if effCfg.Provider == "gemini" || (effCfg.APIKey != "" && effCfg.Provider != "openai") {
+		llm, name, err := buildADKModel(ctx, effCfg)
+		if err != nil {
+			// Explicit selection failed: propagate as a hard error.
+			return nil, "", "", err
+		}
+		return llm, name, "", nil
+	}
+	if openAIPathExplicit(effCfg) {
+		llm, name, err := buildADKModel(ctx, effCfg)
+		if err != nil {
+			if effCfg.Provider == "openai" || effCfg.OpenAIAPIKey != "" {
+				return nil, "", "", err
+			}
+			return nil, "", "OpenAI attempt failed (" + err.Error() + ");", nil
+		}
+		return llm, name, "", nil
+	}
+	// Auto-probe local Ollama before falling back.
+	autoCfg, autoHint, fatalErr := e.resolveAutoOllamaConfig(ctx, effCfg)
+	if fatalErr != nil {
+		return nil, "", "", fatalErr
+	}
+	if autoCfg != nil {
+		llm, name, err := buildADKModel(ctx, *autoCfg)
+		if err != nil {
+			return nil, "", autoHint + " OpenAI attempt failed (" + err.Error() + ");", nil
+		}
+		return llm, name, autoHint, nil
+	}
+	return nil, "", autoHint, nil
+}
+
+// runADKAgent executes one prompt through llmagent.New + runner.Runner and
+// reconstructs the PromptResponse trace from the session event stream.
+// FunctionCall parts and their FunctionResponse payloads are matched by call
+// ID, preserving the exact order of FunctionCalls within each turn.
+func (e *Engine) runADKAgent(ctx context.Context, req *PromptRequest, effCfg Config, allowedTools []string, start time.Time, llm model.LLM, modelUsed string, toolsNil bool) (*PromptResponse, error) {
+	systemPrompt := e.resolveSystemPrompt(effCfg, req)
+
+	tools := e.buildADKTools(allowedTools)
+	if toolsNil {
+		tools = nil
+	}
+
+	cfg := llmagent.Config{
+		Name:        "herd-agent",
+		Description: "Herd mesh cluster agent",
+		Model:       llm,
+		InstructionProvider: func(_ agent.ReadonlyContext) (string, error) {
+			return systemPrompt, nil
+		},
+		Tools:                tools,
+		BeforeToolCallbacks:  []llmagent.BeforeToolCallback{herdBeforeToolCallback(e)},
+		OnToolErrorCallbacks: []llmagent.OnToolErrorCallback{herdOnToolErrorCallback()},
+	}
+	adkAgent, err := llmagent.New(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create ADK agent: %w", err)
+	}
+
+	// Session handling: persist only when the caller supplies a SessionID.
+	// One-shot prompts run on an ephemeral service that is discarded with the
+	// call, so the daemon never accumulates unbounded sessions.
+	svc := e.sessionService()
+	sessionID := req.SessionID
+	if sessionID == "" {
+		svc = session.InMemoryService()
+		sessionID = newSessionID()
+	}
+
+	r, err := runner.New(runner.Config{
+		AppName:           "herd",
+		Agent:             adkAgent,
+		SessionService:    svc,
+		AutoCreateSession: true,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create ADK runner: %w", err)
+	}
+
+	msg := &genai.Content{
+		Role:  "user",
+		Parts: []*genai.Part{{Text: foldHistoryIntoPrompt(req)}},
+	}
+
+	trace, err := collectADKTrace(ctx, r, sessionID, msg)
+	if err != nil {
+		return nil, err
+	}
+
+	return &PromptResponse{
+		Response:    trace.text,
+		ToolsCalled: trace.toolsCalled,
+		ModelUsed:   modelUsed,
+		ExecutionMs: time.Since(start).Milliseconds(),
+	}, nil
+}
+
+// resolveSystemPrompt returns the effective system prompt with the target-node
+// suffix, defaulting to the Herd coordinator prompt.
+func (e *Engine) resolveSystemPrompt(effCfg Config, req *PromptRequest) string {
+	systemPrompt := effCfg.SystemPrompt
+	if systemPrompt == "" {
+		systemPrompt = fmt.Sprintf(
+			"You are Herd Agent for node '%s'. You are part of a decentralized P2P mesh cluster. "+
+				"Use your cluster and research tools (cluster_roster, cluster_exec, cluster_cp, shared_kv, agent_send_mail, agent_broadcast, agent_read_mailbox, fetch_url, google_search, dns_lookup) "+
+				"to discover nodes, execute actions, transfer files, search the web, fetch web content, and coordinate tasks across machines.",
+			e.config.NodeName,
+		)
+	}
+	if req.TargetNode != "" {
+		systemPrompt += fmt.Sprintf("\nThe user targeted node '%s' for this task. Ensure your operations (such as cluster_exec or cluster_cp) target '%s'.", req.TargetNode, req.TargetNode)
+	}
+	return systemPrompt
+}
+
+// adkTrace holds the reconstructed tool-call trace and final response text.
+type adkTrace struct {
+	toolsCalled []ToolCall
+	text        string
+}
+
+// collectADKTrace drains the runner event stream, matching FunctionResponse
+// payloads to their FunctionCall by ID while preserving call order.
+func collectADKTrace(ctx context.Context, r *runner.Runner, sessionID string, msg *genai.Content) (*adkTrace, error) {
+	pending := map[string]*pendingCall{}
+	var order []string
+	results := map[string]string{}
+	var finalResponse strings.Builder
+
+	for ev, rerr := range r.Run(ctx, "herd-user", sessionID, msg, agent.RunConfig{}) {
+		if rerr != nil {
+			return nil, rerr
+		}
+		if ev == nil || ev.Content == nil {
+			continue
+		}
+		// FunctionResponse events carry Role "user"; only the echoed
+		// user prompt itself must not leak into the response text.
+		isUserEvent := ev.Content.Role == "user"
+		for _, part := range ev.Content.Parts {
+			if part == nil {
+				continue
+			}
+			switch {
+			case part.FunctionCall != nil:
+				recordFunctionCall(pending, &order, part.FunctionCall)
+			case part.FunctionResponse != nil:
+				results[part.FunctionResponse.ID] = marshalResponseMap(part.FunctionResponse.Response)
+			case part.Text != "":
+				if !isUserEvent {
+					finalResponse.WriteString(part.Text)
+				}
+			}
+		}
+	}
+
+	var toolsCalled []ToolCall
+	for _, id := range order {
+		p := pending[id]
+		toolsCalled = append(toolsCalled, ToolCall{
+			Name:      p.name,
+			Arguments: p.args,
+			Result:    results[id],
+		})
+	}
+	return &adkTrace{toolsCalled: toolsCalled, text: finalResponse.String()}, nil
+}
+
+// pendingCall records one emitted FunctionCall until its response arrives.
+type pendingCall struct {
+	name string
+	args string
+}
+
+// recordFunctionCall stores one emitted FunctionCall in call order.
+func recordFunctionCall(pending map[string]*pendingCall, order *[]string, fc *genai.FunctionCall) {
+	argBytes, _ := json.Marshal(fc.Args)
+	if argBytes == nil {
+		argBytes = []byte("{}")
+	}
+	pending[fc.ID] = &pendingCall{name: fc.Name, args: string(argBytes)}
+	*order = append(*order, fc.ID)
+}
+
+// marshalResponseMap renders a FunctionResponse payload as a JSON object
+// string for the ToolsCalled audit trace.
+func marshalResponseMap(response map[string]any) string {
+	resBytes, _ := json.Marshal(response)
+	if resBytes == nil {
+		return "{}"
+	}
+	return string(resBytes)
+}
+
+// foldHistoryIntoPrompt prepends req.History messages to the user prompt so
+// prior conversation context survives even for one-shot calls without a
+// persisted session. Multi-turn SessionID chats additionally accumulate full
+// event history in the ADK session service.
+func foldHistoryIntoPrompt(req *PromptRequest) string {
+	if len(req.History) == 0 {
+		return req.Prompt
+	}
+	var sb strings.Builder
+	sb.WriteString("Previous conversation:\n")
+	for _, h := range req.History {
+		role := h.Role
+		if role == "" {
+			role = "user"
+		}
+		sb.WriteString(role)
+		sb.WriteString(": ")
+		sb.WriteString(h.Content)
+		sb.WriteString("\n")
+	}
+	sb.WriteString("\nCurrent task:\n")
+	sb.WriteString(req.Prompt)
+	return sb.String()
 }

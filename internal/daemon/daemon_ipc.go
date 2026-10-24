@@ -291,6 +291,14 @@ func (d *Daemon) AgentPrompt(ctx context.Context, req *ipc.AgentPromptRequest) (
 		Role:       req.Role,
 		Model:      req.Model,
 		Provider:   req.Provider,
+		SessionID:  req.SessionID,
+	}
+	for _, h := range req.History {
+		pReq.History = append(pReq.History, agent.ChatMessage{
+			Role:    h.Role,
+			Content: h.Content,
+			Name:    h.Name,
+		})
 	}
 
 	d.Logger.Named("agent").Infof("Received task prompt: %q", req.Prompt)

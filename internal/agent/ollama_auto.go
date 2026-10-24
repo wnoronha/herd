@@ -2,9 +2,9 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
-	"time"
 )
 
 const defaultOllamaOpenAIBase = "http://localhost:11434/v1"
@@ -44,13 +44,10 @@ func modelUnsuitedForOllama(model string) bool {
 	return strings.HasPrefix(model, "gemini-")
 }
 
-func (e *Engine) tryAutoOllamaBackends(
+func (e *Engine) resolveAutoOllamaConfig(
 	ctx context.Context,
-	req *PromptRequest,
 	effCfg Config,
-	allowedTools []string,
-	start time.Time,
-) (*PromptResponse, string, error) {
+) (*Config, string, error) {
 	if os.Getenv("HERD_DISABLE_AUTO_OLLAMA") != "" {
 		return nil, "", nil
 	}
@@ -59,35 +56,26 @@ func (e *Engine) tryAutoOllamaBackends(
 	}
 
 	discovered, installed, listErr := applyDiscoveredOllamaModels(ctx, effCfg)
-	effCfg = discovered
-
-	var lastErr error
-	if !openAIPathExplicit(effCfg) {
-		tryCfg := ollamaAutoOpenAICfg(effCfg)
-		resp, err := e.executeWithOpenAI(ctx, req, tryCfg, allowedTools, start)
-		if err == nil && resp != nil {
-			return resp, "", nil
+	if listErr != nil {
+		if effCfg.Provider == "ollama" {
+			return nil, "", fmt.Errorf("ollama provider selected but probe failed: %w", listErr)
 		}
-		if err != nil {
-			lastErr = err
+		if openAIPathExplicit(discovered) {
+			return &discovered, "", nil
 		}
+		hint := ollamaAutoFailureHintWithList(ollamaHost(discovered), installed, listErr, discovered, nil)
+		return nil, hint, nil
 	}
-
-	resp, err := e.executeWithOllama(ctx, req, effCfg, start)
-	if err == nil && resp != nil {
-		return resp, "", nil
+	if len(installed) == 0 {
+		if effCfg.Provider == "ollama" {
+			return nil, "", fmt.Errorf("ollama provider selected but no models are installed (run: ollama pull llama3.2)")
+		}
+		if openAIPathExplicit(discovered) {
+			return &discovered, "", nil
+		}
+		hint := ollamaAutoFailureHintWithList(ollamaHost(discovered), installed, nil, discovered, nil)
+		return nil, hint, nil
 	}
-	if err != nil {
-		lastErr = err
-	}
-
-	if effCfg.Provider == "ollama" && lastErr != nil {
-		return nil, "", lastErr
-	}
-	hint := ""
-	if lastErr != nil || resp == nil {
-		// Reuse the discovery listing instead of re-fetching /api/tags.
-		hint = ollamaAutoFailureHintWithList(ollamaHost(effCfg), installed, listErr, effCfg, lastErr)
-	}
-	return nil, hint, nil
+	tryCfg := ollamaAutoOpenAICfg(discovered)
+	return &tryCfg, "", nil
 }

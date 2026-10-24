@@ -171,7 +171,7 @@ func buildStatusReasonFixes(cfg Config, configured bool, backendClass string, kv
 		return "Ollama provider selected.", []string{"Ensure Ollama is running at " + cfg.OllamaHost}
 	}
 	if backendClass == "auto" {
-		return "No cloud LLM keys configured; each prompt auto-probes local Ollama (" + defaultOllamaOpenAIBase + " with tools, then native chat) before deterministic fallback.",
+		return "No cloud LLM keys configured; each prompt auto-probes local Ollama (" + defaultOllamaOpenAIBase + " via ADK openaimodel, with tool-less retry) before deterministic fallback.",
 			[]string{
 				"Run: ollama serve && ollama pull llama3.2 (or set OLLAMA_MODEL); restart herd daemon after upgrading Herd",
 				"herd agent status --probe — verify Ollama tags before prompting",
@@ -179,7 +179,7 @@ func buildStatusReasonFixes(cfg Config, configured bool, backendClass string, kv
 			}
 	}
 
-	reason = "No LLM credentials and local Ollama probe failed or is unavailable; using deterministic fallback (keyword heuristics only)."
+	reason = "No LLM credentials and local Ollama probe is unavailable or is unusable; using deterministic fallback (keyword heuristics via ADK deterministicLLM only)."
 	fixes = []string{
 		"Start Ollama on " + strings.TrimSuffix(defaultOllamaOpenAIBase, "/v1") + " or set GEMINI_API_KEY / OPENAI_BASE_URL",
 		`herd kv set agent:config:global '{"provider":"gemini","model":"gemini-3.8-flash","api_key":"<key>"}'`,

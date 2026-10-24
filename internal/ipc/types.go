@@ -174,11 +174,20 @@ type KVListResponse struct {
 
 // AgentPromptRequest contains task instructions for the local node agent.
 type AgentPromptRequest struct {
-	Prompt     string `json:"prompt"`
-	TargetNode string `json:"target_node,omitempty"`
-	Model      string `json:"model,omitempty"`
-	Provider   string `json:"provider,omitempty"`
-	Role       string `json:"role,omitempty"`
+	Prompt     string           `json:"prompt"`
+	TargetNode string           `json:"target_node,omitempty"`
+	Model      string           `json:"model,omitempty"`
+	Provider   string           `json:"provider,omitempty"`
+	Role       string           `json:"role,omitempty"`
+	SessionID  string           `json:"session_id,omitempty"`
+	History    []ChatMessageDTO `json:"history,omitempty"`
+}
+
+// ChatMessageDTO carries one conversation message for session continuity.
+type ChatMessageDTO struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+	Name    string `json:"name,omitempty"`
 }
 
 // ToolCallDTO represents a recorded tool call in an agent prompt execution.
