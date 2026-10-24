@@ -87,7 +87,7 @@ jobs:
           cd ..
 
       - name: Upload Linux AMD64
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: herd-linux-amd64
           path: |
@@ -95,7 +95,7 @@ jobs:
             bin/release/herd-linux-amd64
 
       - name: Upload Linux ARM64
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: herd-linux-arm64
           path: |
@@ -103,7 +103,7 @@ jobs:
             bin/release/herd-linux-arm64
 
       - name: Upload macOS ARM64 (Apple Silicon)
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: herd-darwin-arm64
           path: |
@@ -111,7 +111,7 @@ jobs:
             bin/release/herd-darwin-arm64
 
       - name: Upload macOS AMD64 (Intel)
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: herd-darwin-amd64
           path: |
@@ -119,7 +119,7 @@ jobs:
             bin/release/herd-darwin-amd64
 
       - name: Upload Windows AMD64
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: herd-windows-amd64
           path: |
@@ -127,7 +127,7 @@ jobs:
             bin/release/herd-windows-amd64.exe
 
       - name: Upload Checksums
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: herd-checksums
           path: dist/SHA256SUMS.txt
