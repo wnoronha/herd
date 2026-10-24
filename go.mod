@@ -11,7 +11,7 @@ require (
 	go.uber.org/zap v1.28.0
 	go4.org/mem v0.0.0-20240501181205-ae6ca9944745
 	golang.org/x/crypto v0.57.0
-	google.golang.org/genai v1.71.0
+	google.golang.org/genai v1.75.0
 	gopkg.in/yaml.v3 v3.0.1
 	tailscale.com v1.103.0-pre.0.20260916030321-a2263542f260
 )
