@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -29,6 +30,19 @@ type Engine struct {
 	sessionSvc session.Service
 	sessionMu  sync.Mutex
 }
+
+// Persisted-session bounds keep the long-lived daemon from accumulating
+// unbounded chat sessions. Stale sessions expire by TTL; overflow beyond the
+// cap evicts least-recently-updated first. Best-effort: eviction never fails
+// the prompt.
+const (
+	persistedSessionTTL = 30 * time.Minute
+	maxPersistedSessions = 100
+	// herdADKAppName and herdADKUserID match the runner invocation identity
+	// in runADKAgent and collectADKTrace.
+	herdADKAppName = "herd"
+	herdADKUserID  = "herd-user"
+)
 
 // sessionService returns the shared ADK session service, creating it lazily.
 // Stateful multi-turn chat sessions persist here; one-shot prompts with an
@@ -371,6 +385,8 @@ func (e *Engine) runADKAgent(ctx context.Context, req *PromptRequest, effCfg Con
 	if sessionID == "" {
 		svc = session.InMemoryService()
 		sessionID = newSessionID()
+	} else {
+		e.evictStaleSessions(ctx, svc)
 	}
 
 	r, err := runner.New(runner.Config{
@@ -399,6 +415,36 @@ func (e *Engine) runADKAgent(ctx context.Context, req *PromptRequest, effCfg Con
 		ModelUsed:   modelUsed,
 		ExecutionMs: time.Since(start).Milliseconds(),
 	}, nil
+}
+
+// evictStaleSessions removes persisted sessions older than
+// persistedSessionTTL and, on overflow beyond maxPersistedSessions, the
+// least-recently-updated extras. Errors are ignored: eviction is best-effort.
+func (e *Engine) evictStaleSessions(ctx context.Context, svc session.Service) {
+	list, err := svc.List(ctx, &session.ListRequest{AppName: herdADKAppName, UserID: herdADKUserID})
+	if err != nil || list == nil {
+		return
+	}
+	var live []session.Session
+	for _, s := range list.Sessions {
+		if s == nil {
+			continue
+		}
+		if time.Since(s.LastUpdateTime()) > persistedSessionTTL {
+			_ = svc.Delete(ctx, &session.DeleteRequest{AppName: herdADKAppName, UserID: herdADKUserID, SessionID: s.ID()})
+			continue
+		}
+		live = append(live, s)
+	}
+	if len(live) <= maxPersistedSessions {
+		return
+	}
+	sort.Slice(live, func(i, j int) bool {
+		return live[i].LastUpdateTime().Before(live[j].LastUpdateTime())
+	})
+	for _, s := range live[:len(live)-maxPersistedSessions] {
+		_ = svc.Delete(ctx, &session.DeleteRequest{AppName: herdADKAppName, UserID: herdADKUserID, SessionID: s.ID()})
+	}
 }
 
 // resolveSystemPrompt returns the effective system prompt with the target-node
@@ -499,11 +545,12 @@ func marshalResponseMap(response map[string]any) string {
 }
 
 // foldHistoryIntoPrompt prepends req.History messages to the user prompt so
-// prior conversation context survives even for one-shot calls without a
-// persisted session. Multi-turn SessionID chats additionally accumulate full
-// event history in the ADK session service.
+// prior conversation context survives for one-shot calls without a persisted
+// session. History is only for one-shot calls: when SessionID is present the
+// ADK session service already accumulates full event history, so folding here
+// would double-count prior context.
 func foldHistoryIntoPrompt(req *PromptRequest) string {
-	if len(req.History) == 0 {
+	if len(req.History) == 0 || req.SessionID != "" {
 		return req.Prompt
 	}
 	var sb strings.Builder
