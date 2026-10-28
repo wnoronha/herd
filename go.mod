@@ -13,7 +13,7 @@ require (
 	go4.org/mem v0.0.0-20240501181205-ae6ca9944745
 	golang.org/x/crypto v0.58.0
 	google.golang.org/adk/v2 v2.6.0
-	google.golang.org/genai v1.75.0
+	google.golang.org/genai v1.76.0
 	gopkg.in/yaml.v3 v3.0.1
 	tailscale.com v1.105.0-pre
 )
